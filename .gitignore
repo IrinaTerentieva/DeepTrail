@@ -1,0 +1,44 @@
+# .wandb_key
+your_wandb_api_key_here
+
+# Python related
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.metaflow
+
+# Virtual environments
+.env/
+.venv/
+*.egg-info/
+*.egg
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Models and large data
+Models/*
+!Models/*.yaml  # Keep yaml config files in Models
+DATA/*
+!DATA/*.yaml    # Keep yaml config files in DATA
+Misc/*
+archive/*
+Scripts/training/wandb/*
+
+# Slurm job outputs
+*.txt
+
+# Ignore unnecessary hidden files
+.DS_Store
+*.swp
+.idea/
+
+/Scripts/training/wandb/
+/Scripts/wandb/
+
+*.tif
+/DATA
+
+/Scripts/training/*.txt

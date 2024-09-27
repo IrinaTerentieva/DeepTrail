@@ -1,0 +1,64 @@
+# Model Configuration
+model:
+  model_dir: "Models"
+  model_name: mit-b1  # Switch between 'mit-b0' and 'mit-b3' (or other MiT variants)
+  mit-b1:
+    architecture: segformer
+    depths: [2, 2, 2, 2]  # Depths for each stage
+    hidden_sizes: [32, 64, 160, 256]  # Feature sizes for each stage
+    decoder_hidden_size: 256
+    aspp_out_channels: 256
+    aspp_ratios:
+      - 1
+      - 6
+      - 12
+      - 18
+    attention_dropout_prob: 0.05
+    output_stride: 1
+    use_aspp: true
+
+# Augmentation Configuration
+augmentations:
+  brightness_contrast: true
+  elastic_transform: true
+  horizontal_flip: true
+  random_rotate90: true
+  rotate: true
+  vertical_flip: true
+  gaussian_noise: true  # Add noise for robustness
+  scale: true  # Simulate different resolutions
+
+# Training Parameters
+training:
+  early_stopping_patience: 5
+  batch_size: 8
+  learning_rate: 0.0001
+  num_epochs: 3
+  loss_function: focal  # Options: 'dice' or 'focal'
+
+# Prediction Parameters
+prediction_params:
+  model_path: Models/best_segformer_epoch_14_val_loss_0.0867.pth
+  output_dir: DATA/Test_Models
+  overlap_size: 256
+  patch_size: 512
+  test_image_path: DATA/DTM/Airborne/Kirby_nDTM50cm_2017.tif
+
+# Preprocessing Parameters
+preprocessing:
+  input_files:
+    chm: DATA/DTM/Drone/PFT_KirbySouth_July_NormalizedDTM_6m.tif
+    points: DATA/vector/RandomPoints/training_random_points_20.gpkg
+  output_dir:
+    intermediate: DATA/intermediate
+  patch_extraction:
+    patch_size_pixels: 512
+    n_random_points: 50
+    patches: DATA/TrainingCNN/UNet_patches512_nDTM10cm/
+  rasterization:
+    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_10cm_normDTM6m_Human_DTM10cm_512_byCNN_9ep_good_512_250max_filt15_500.tif
+
+# Project Parameters
+project:
+  max_height: 25
+  project_name: HumanFootprint_SegFormer
