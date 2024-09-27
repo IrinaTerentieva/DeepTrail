@@ -47,16 +47,16 @@ prediction_params:
 # Preprocessing Parameters
 preprocessing:
   input_files:
-    chm: DATA/DTM/Drone/PFT_KirbySouth_July_NormalizedDTM_6m.tif
-    points: DATA/vector/RandomPoints/training_random_points_20.gpkg
+    chm: DATA/DTM/Airborne/DTM_10cm_binning_488_6131_496_6137.tif
+    points: DATA/vector/RandomPoints/training_random_points_2000.gpkg
   output_dir:
     intermediate: DATA/intermediate
   patch_extraction:
-    patch_size_pixels: 512
-    n_random_points: 50
-    patches: DATA/TrainingCNN/UNet_patches512_nDTM10cm/
+    patch_size_pixels: 1048
+    n_random_points: 1000
+    patches: DATA/TrainingCNN/UNet_patches1048_DTM10cm/
   rasterization:
-    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_10cm_normDTM6m_Human_DTM10cm_512_byCNN_9ep_good_512_250max_filt15_500.tif
+    rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
 
 # Project Parameters
 project:

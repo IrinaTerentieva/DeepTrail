@@ -7,7 +7,8 @@ from shapely.geometry import box
 from tqdm import tqdm
 import yaml
 from metaflow import FlowSpec, step
-
+from datetime import datetime
+import shutil
 
 class PatchExtractionFlow(FlowSpec):
     """
@@ -34,6 +35,7 @@ class PatchExtractionFlow(FlowSpec):
     def start(self):
         """
         Start step: Load the configuration settings from the central config.yaml file.
+        Log the start time and initial settings. Save config and code to output folder.
         """
         # Load the config file
         config_path = os.path.join(self.base_dir(), 'config.yaml')
@@ -42,7 +44,29 @@ class PatchExtractionFlow(FlowSpec):
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
 
-        print(f"Configuration loaded with settings:\n{self.config['preprocessing']['patch_extraction']}")
+        # Log the start time and config information
+        self.start_time = datetime.now()
+        self.log = f"Patch extraction started at: {self.start_time}\n"
+        self.log += f"Configuration loaded:\n{self.config}\n"
+
+        # Create the output directory if it doesn't exist
+        self.output_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+            print(f"Created output directory: {self.output_dir}")
+
+        # Save a copy of the config.yaml file in the output directory
+        output_config_path = os.path.join(self.output_dir, 'config_backup.yaml')
+        shutil.copy(config_path, output_config_path)
+        self.log += f"Configuration saved to: {output_config_path}\n"
+
+        # Save the executed code to the output folder
+        script_path = os.path.abspath(__file__)  # Get the path of the currently executing script
+        output_script_path = os.path.join(self.output_dir, 'executed_script_backup.py')
+        shutil.copy(script_path, output_script_path)
+        self.log += f"Executed script saved to: {output_script_path}\n"
+
+        print(f"Configuration and script saved in the output directory.")
         self.next(self.load_points)
 
     @step
@@ -56,11 +80,8 @@ class PatchExtractionFlow(FlowSpec):
         self.points = gpd.read_file(points_path)
         print(f"Loaded points file from: {points_path}")
 
-        # Ensure output directory exists
-        self.output_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-            print(f"Created output directory: {self.output_dir}")
+        # Log the number of loaded points
+        self.log += f"Number of points loaded: {len(self.points)}\n"
 
         # Select random points based on n_random_points from config
         n_random_points = self.config['preprocessing']['patch_extraction']['n_random_points']
@@ -126,7 +147,7 @@ class PatchExtractionFlow(FlowSpec):
 
                 # Handle NoData in labels
                 cnn_nodata_value = cnn_raster.nodata
-                label_raster = (cnn_data[0] > 0.5).astype(np.uint8)  # Threshold CNN output at 0.5
+                label_raster = cnn_data[0].astype(np.uint8)  # Keep labels as integers
                 if cnn_nodata_value is not None:
                     label_raster[cnn_data[0] == cnn_nodata_value] = 0  # Treat NoData as background (0)
 
@@ -152,7 +173,13 @@ class PatchExtractionFlow(FlowSpec):
         """
         Final step: Log completion of the patch extraction process.
         """
-        print(f"Patch extraction process completed successfully. Patches saved in: {self.output_dir}")
+        self.end_time = datetime.now()
+        self.log += f"Patch extraction completed at: {self.end_time}\n"
+        self.log += f"Total execution time: {self.end_time - self.start_time}\n"
+        print(self.log)
+
+        # Save log as an artifact in Metaflow
+        self.log_artifact = self.log
 
 
 if __name__ == '__main__':
