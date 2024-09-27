@@ -26,13 +26,15 @@ if environment == 'hpc':
 else:
     patch_dir = '/media/irro/All/HumanFootprint/'
 
-patch_dir = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches512_nDTM10cm'
 
 # model_path = '/media/irro/All/HumanFootprint/Models/Weights/50cm/Human_DTMnorm50_512_byCNN_5ep.h5'
 model_path = '/media/irro/All/HumanFootprint/Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5'
 
 # Model settings
-size = 512
+size = 1024
+
+patch_dir = f'/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches{size}_nDTM10cm'
+
 input_shape = (size, size, 1)
 filters = 32
 use_batch_norm = True
@@ -251,3 +253,4 @@ preds_val_batch = (themodel.predict(X_val_batch) > 0.1).astype(np.uint8)
 
 # Plot predictions
 plot_predictions(X_val_batch, y_val_batch, preds_val_batch)
+print('Size: ', size)
