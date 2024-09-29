@@ -9,6 +9,8 @@ import rasterio
 import tensorflow as tf
 from custom_unet import custom_unet
 
+# OLD working version
+
 # Suppress TensorFlow and CUDA logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
