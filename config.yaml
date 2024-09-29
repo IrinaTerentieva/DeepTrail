@@ -42,9 +42,9 @@ augmentations:
 # Training Parameters
 training:
   early_stopping_patience: 5
-  batch_size: 8
-  learning_rate: 0.00001
-  num_epochs: 3
+  batch_size: 2
+  learning_rate: 0.0001
+  num_epochs: 15
   loss_function: focal
 
 # Prediction Parameters
@@ -65,9 +65,9 @@ preprocessing:
   patch_extraction:
     patch_size_pixels: 512
     n_random_points: 1000
-    patches: DATA/TrainingCNN/UNet_patches512_nDTM10cm/
+    patches: DATA/TrainingCNN/UNet_patches1048_DTM10cm/
 
 # Project Parameters
 project:
   max_height: 25
-  project_name: HumanFootprint_SegFormer
+  project_name: HumanFootprint_Setup

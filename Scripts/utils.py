@@ -80,8 +80,8 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
 
 def load_data(patch_dir):
     all_files = [f for f in os.listdir(patch_dir) if f.endswith('.tif')]
-    train_images = [os.path.join(patch_dir, f) for f in all_files if 'img' in f]
-    train_labels = [os.path.join(patch_dir, f.replace('img', 'lab')) for f in train_images if os.path.isfile(os.path.join(patch_dir, f.replace('img', 'lab')))]
+    train_images = [os.path.join(patch_dir, f) for f in all_files if 'image' in f]
+    train_labels = [os.path.join(patch_dir, f.replace('image', 'label')) for f in train_images if os.path.isfile(os.path.join(patch_dir, f.replace('image', 'label')))]
     return train_test_split(train_images, train_labels, test_size=0.1, random_state=42)
 
 import tensorflow as tf
