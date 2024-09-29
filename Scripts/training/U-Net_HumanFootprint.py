@@ -103,7 +103,7 @@ class UNetFlow(FlowSpec):
 
         # Set up callbacks for early stopping and saving the best model
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=config['training']['early_stopping_patience'], verbose=1)
-        model_checkpoint = ModelCheckpoint(filepath=dynamic_model_path, save_best_only=True, verbose=1)
+        model_checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=dynamic_model_path, save_best_only=True, verbose=1)
 
         # Create data generators for training and validation
         train_gen = TrailsDataGenerator(self.train_images, self.train_labels, batch_size=config['training']['batch_size'], augment=True)
