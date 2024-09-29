@@ -4,8 +4,8 @@ model:
   model_name: mit-b1  # Switch between 'mit-b0' and 'mit-b3' (or other MiT variants)
   mit-b1:
     architecture: segformer
-    depths: [2, 2, 2, 2]  # Depths for each stage
-    hidden_sizes: [32, 64, 160, 256]  # Feature sizes for each stage
+    depths: [2, 2, 2, 2]
+    hidden_sizes: [32, 64, 160, 256]
     decoder_hidden_size: 256
     aspp_out_channels: 256
     aspp_ratios:
@@ -17,6 +17,17 @@ model:
     output_stride: 1
     use_aspp: true
 
+  custom_unet:
+    architecture: unet
+    num_classes: 1
+    patch_size: 512
+    num_bands: 1
+    filters: 32
+    use_batch_norm: True
+    dropout: 0.3
+    output_activation: 'sigmoid'
+    num_layers: 4
+
 # Augmentation Configuration
 augmentations:
   brightness_contrast: true
@@ -25,8 +36,8 @@ augmentations:
   random_rotate90: true
   rotate: true
   vertical_flip: true
-  gaussian_noise: true  # Add noise for robustness
-  scale: true  # Simulate different resolutions
+  gaussian_noise: true
+  scale: true
 
 # Training Parameters
 training:
@@ -34,7 +45,7 @@ training:
   batch_size: 8
   learning_rate: 0.00001
   num_epochs: 3
-  loss_function: focal  # Options: 'dice' or 'focal'
+  loss_function: focal
 
 # Prediction Parameters
 prediction_params:
@@ -55,9 +66,6 @@ preprocessing:
     patch_size_pixels: 512
     n_random_points: 1000
     patches: DATA/TrainingCNN/UNet_patches512_nDTM10cm/
-  rasterization:
-    # rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
-    rasterized_canopy_footprint: DATA/DTM/Airborne/Kirby_nDTM50cm_2017.tif
 
 # Project Parameters
 project:

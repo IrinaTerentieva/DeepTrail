@@ -1,11 +1,10 @@
-#!/usr/bin/env python
-# coding: utf-8
 
-# In[1]:
-
-
-# python prediction.py --input_tif /path/to/input.tif --model_name /path/to/model.h5 --patch_size 512 --overlap_size 256 --filters 32 --visualize
-
+# Test Predictions
+X_val_batch, y_val_batch = val_gen[0]
+preds_val_batch = (themodel.predict(X_val_batch) > 0.1).astype(np.uint8)
+# Plot predictions
+plot_predictions(X_val_batch, y_val_batch, preds_val_batch)
+print('Size: ', size)
 
 # In[1]:
 
