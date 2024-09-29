@@ -17,7 +17,7 @@ import wandb
 import tensorflow as tf
 from metaflow import FlowSpec, step, batch, Parameter
 from custom_unet import custom_unet
-from utils import TrailsDataGenerator, iou, iou_thresholded, load_data
+from utils import TrailsDataGenerator, iou, iou_thresholded, load_data, plot_predictions
 
 # Load YAML config
 def load_yaml_config(config_path):
@@ -113,12 +113,18 @@ class UNetFlow(FlowSpec):
 
         for epoch in range(config['training']['num_epochs']):
             print(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
+            print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
             # Training step
-            model.fit(train_gen)
+            history = model.fit(train_gen, validation_data=val_gen, epochs=config['training']['num_epochs'])
 
-            # Validation step
-            val_loss = model.evaluate(val_gen, verbose=0)
+            train_loss = history.history['loss'][0]
+            val_loss = history.history['val_loss'][0]
+            wandb.log({"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss})
+
+            # Validation step: model.evaluate returns a list [val_loss, other metrics...]
+            val_results = model.evaluate(val_gen, verbose=0)
+            val_loss = val_results[0]  # Extract the validation loss (first element of the list)
             print(f"Validation Loss: {val_loss}")
 
             # Check if validation loss improved
@@ -135,10 +141,6 @@ class UNetFlow(FlowSpec):
             if patience_counter >= patience:
                 print("Early stopping triggered.")
                 break
-
-        # Finish the WandB logging
-        wandb.finish()
-        self.next(self.end)
 
         # Finish the WandB logging
         wandb.finish()
