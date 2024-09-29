@@ -101,17 +101,44 @@ class UNetFlow(FlowSpec):
 
         dynamic_model_path = os.path.join(checkpoint_dir, 'unet_epoch_{epoch:02d}_valloss_{val_loss:.2f}.h5')
 
-        # Set up callbacks for early stopping and saving the best model
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=config['training']['early_stopping_patience'], verbose=1)
-        model_checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=dynamic_model_path, save_best_only=True, verbose=1)
-
         # Create data generators for training and validation
-        train_gen = TrailsDataGenerator(self.train_images, self.train_labels, batch_size=config['training']['batch_size'], augment=True)
+        train_gen = TrailsDataGenerator(self.train_images, self.train_labels,
+                                        batch_size=config['training']['batch_size'], augment=True)
         val_gen = TrailsDataGenerator(self.val_images, self.val_labels, batch_size=config['training']['batch_size'])
 
-        # Training the model with callbacks
-        model.fit(train_gen, validation_data=val_gen, epochs=config['training']['num_epochs'],
-                  callbacks=[early_stopping, model_checkpoint])
+        # Manually implement early stopping and model checkpointing
+        best_val_loss = np.inf
+        patience = config['training']['early_stopping_patience']
+        patience_counter = 0
+
+        for epoch in range(config['training']['num_epochs']):
+            print(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
+
+            # Training step
+            model.fit(train_gen)
+
+            # Validation step
+            val_loss = model.evaluate(val_gen, verbose=0)
+            print(f"Validation Loss: {val_loss}")
+
+            # Check if validation loss improved
+            if val_loss < best_val_loss:
+                print(f"Validation loss improved from {best_val_loss} to {val_loss}. Saving model.")
+                best_val_loss = val_loss
+                model.save(dynamic_model_path.format(epoch=epoch, val_loss=val_loss))
+                patience_counter = 0  # Reset patience counter
+            else:
+                patience_counter += 1
+                print(f"Validation loss did not improve. Patience counter: {patience_counter}/{patience}")
+
+            # Early stopping condition
+            if patience_counter >= patience:
+                print("Early stopping triggered.")
+                break
+
+        # Finish the WandB logging
+        wandb.finish()
+        self.next(self.end)
 
         # Finish the WandB logging
         wandb.finish()
