@@ -127,6 +127,11 @@ class UNetFlow(FlowSpec):
             val_loss = val_results[0]  # Extract the validation loss (first element of the list)
             print(f"Validation Loss: {val_loss}")
 
+            # Plot predictions after each epoch
+            val_images, val_masks = next(iter(val_gen))
+            val_preds = model.predict(val_images)
+            plot_predictions(val_images, val_masks, val_preds)
+
             # Check if validation loss improved
             if val_loss < best_val_loss:
                 print(f"Validation loss improved from {best_val_loss} to {val_loss}. Saving model.")
