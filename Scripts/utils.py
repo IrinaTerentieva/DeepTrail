@@ -55,7 +55,7 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
 
         return X, y
 
-    def load_data(self, img_path, mask_path):
+    def load_data(self, img_path, mask_path, threshold = 0.3):
         """Load and preprocess image and mask."""
         with rasterio.open(img_path) as src:
             img = src.read(1)
@@ -65,6 +65,7 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
 
         with rasterio.open(mask_path) as src:
             mask = src.read(1)
+            mask = apply_threshold(mask, threshold)
             mask = np.expand_dims(mask, axis=-1)
             mask = tf.image.resize(mask, self.image_size)
 
@@ -81,6 +82,20 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
         image = tf.image.random_brightness(image, max_delta=0.1)
         image = tf.image.random_contrast(image, lower=0.9, upper=1.1)
         return image, mask
+
+def apply_threshold(mask, threshold=0.5):
+    """
+    Apply a threshold to the mask to make it binary.
+
+    Args:
+    - mask (numpy.ndarray): The input mask.
+    - threshold (float): The threshold value for binarization. Default is 0.5.
+
+    Returns:
+    - binary_mask (numpy.ndarray): The binary mask after applying the threshold.
+    """
+    binary_mask = np.where(mask > threshold, 1, 0)
+    return binary_mask
 
 def load_data(patch_dir):
     all_files = [f for f in os.listdir(patch_dir) if f.endswith('.tif')]
