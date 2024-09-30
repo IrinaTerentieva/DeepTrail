@@ -200,14 +200,10 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
 
     # Test Predictions
     X_val_batch, y_val_batch = val_gen[0]
-    print(model.predict(X_val_batch))
-
     preds_val_batch = (model.predict(X_val_batch) > 0.1).astype(np.uint8)
-
     calculate_statistics(X_val_batch, preds_val_batch)
-
-    # Plot predictions
     plot_predictions(X_val_batch, y_val_batch, preds_val_batch, num_patches)
+
 
 # ------------------- #
 # Main Script         #
@@ -244,4 +240,4 @@ if __name__ == '__main__':
 
     # Test the model on patches
     patches_dir = os.path.join('/media/irro/All/HumanFootprint/', config['preprocessing']['patch_extraction']['patches'])
-    test_model_on_patches(themodel, patches_dir, num_patches=1)
+    test_model_on_patches(themodel, patches_dir, num_patches=2)
