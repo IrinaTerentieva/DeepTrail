@@ -64,9 +64,9 @@ preprocessing:
   output_dir:
     intermediate: DATA/intermediate
   patch_extraction:
-    patch_size_pixels: 1024
+    patch_size_pixels: 256
     n_random_points: 2000
-    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_DTM10cm/'  # Use a placeholder
+    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_nDTM50cm/'  # Use a placeholder
   rasterization:
     rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
 #    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm10cm_CNNsum.tif
@@ -74,4 +74,4 @@ preprocessing:
 # Project Parameters
 project:
   max_height: 25
-  project_name: HumanFootprint_Setup
+  project_name: UNet_HumanFootprint

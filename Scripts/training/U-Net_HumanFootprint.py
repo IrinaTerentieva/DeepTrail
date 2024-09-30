@@ -27,6 +27,9 @@ warnings.filterwarnings('ignore')
 
 class UNetFlow(FlowSpec):
 
+    environment = 'local'
+    username = 'irina.terenteva'
+
     @property
     def base_dir(self):
         """
@@ -39,13 +42,22 @@ class UNetFlow(FlowSpec):
 
     @step
     def start(self):
-        self.config_path = os.path.join(self.base_dir(), 'config.yaml')
+        """
+        Start step: Load configuration settings from the central config.yaml file.
+        """
+        # Access the base directory
+        self.config_path = os.path.join(self.base_dir, 'config.yaml')
         print(f"Loading configuration from: {self.config_path}")
 
+        # Load YAML configuration
         with open(self.config_path, 'r') as file:
             self.config = yaml.safe_load(file)
 
-        self.patch_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
+        # Patch size and directory settings
+        self.patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
+        self.config['preprocessing']['patch_extraction']['patches'] = self.config['preprocessing']['patch_extraction'][
+            'patches'].format(patch_size_pixels=self.patch_size_pixels)
+        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'])
 
         # Initialize WandB for the specific experiment
         wandb_key_path = os.path.join(self.base_dir, 'Scripts', 'training', 'wandb_key.txt')

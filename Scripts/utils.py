@@ -20,6 +20,12 @@ import tensorflow as tf
 
 # ------------------- Data Loader -------------------
 
+import numpy as np
+import rasterio
+import tensorflow as tf
+from skimage.measure import label
+from skimage.morphology import remove_small_objects
+
 class TrailsDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, image_list, mask_list, batch_size=32, image_size=(512, 512), shuffle=True, augment=False):
         self.image_list = image_list
@@ -55,20 +61,20 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
 
         return X, y
 
-    def load_data(self, img_path, mask_path, threshold = 0.3):
-        """Load and preprocess image and mask."""
+    def load_data(self, img_path, mask_path, threshold=0.3, min_size=200):
+        """Load and preprocess image and mask with thresholding and small object removal."""
         with rasterio.open(img_path) as src:
             img = src.read(1)
             img = np.expand_dims(img, axis=-1)
-            img = tf.image.resize(img, self.image_size)
+            img = tf.image.resize(img, self.image_size, method='bilinear')
             img = normalize_image(img)
 
         with rasterio.open(mask_path) as src:
             mask = src.read(1)
             mask = apply_threshold(mask, threshold)
-            mask = remove_small_objects(mask, min_size=200)
+            mask = self.remove_small_objects(mask, min_size)
             mask = np.expand_dims(mask, axis=-1)
-            mask = tf.image.resize(mask, self.image_size)
+            mask = tf.image.resize(mask, self.image_size, method='nearest')
 
         return img, mask
 
@@ -84,16 +90,12 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
         image = tf.image.random_contrast(image, lower=0.9, upper=1.1)
         return image, mask
 
-def remove_small_objects(mask, min_size=200):
-    """Remove small objects from mask."""
-    from scipy.ndimage import label
-    labeled_mask, num_features = label(mask)
-    small_objects_mask = np.zeros_like(mask)
-    for i in range(1, num_features + 1):
-        component = np.where(labeled_mask == i, 1, 0)
-        if np.sum(component) < min_size:
-            small_objects_mask += component
-    return mask - small_objects_mask
+    def remove_small_objects(self, mask, min_size):
+        """Remove small objects from the mask using skimage."""
+        labeled_mask = label(mask)
+        cleaned_mask = remove_small_objects(labeled_mask, min_size=min_size)
+        return np.where(cleaned_mask > 0, 1, 0)  # Convert back to binary
+
 
 def apply_threshold(mask, threshold=0.5):
     """
