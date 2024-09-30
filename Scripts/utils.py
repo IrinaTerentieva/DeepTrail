@@ -12,7 +12,11 @@ import albumentations as A
 # from albumentations.pytorch import ToTensorV2
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-
+from rasterio.windows import Window
+from tqdm import tqdm
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
 
 # ------------------- Data Loader -------------------
 
@@ -84,8 +88,6 @@ def load_data(patch_dir):
     train_labels = [os.path.join(patch_dir, f.replace('image', 'label')) for f in train_images if os.path.isfile(os.path.join(patch_dir, f.replace('image', 'label')))]
     return train_test_split(train_images, train_labels, test_size=0.1, random_state=42)
 
-import tensorflow as tf
-
 def iou(y_true, y_pred, smooth=1e-6):
     y_true = tf.reshape(y_true, [-1])
     y_pred = tf.reshape(y_pred, [-1])
@@ -98,15 +100,19 @@ def iou_thresholded(y_true, y_pred, threshold=0.5, smooth=1e-6):
     return iou(y_true, y_pred, smooth)
 
 def plot_predictions(images, ground_truths, predictions, num=5):
-    """Plot images, ground truths, and predictions side by side."""
+    """Plot images, ground truths, and predictions side by side with normalization."""
     # Set num to the minimum between the actual batch size and the desired number of images
     num = min(images.shape[0], num)
 
     fig, axs = plt.subplots(num, 3, figsize=(15, 5 * num))
 
     for i in range(num):
+        # Normalize images and predictions using the provided normalize_image function
+        normalized_image = normalize_image(images[i, :, :, 0])
+        normalized_prediction = normalize_image(predictions[i, :, :, 0])
+
         # Plot original image
-        axs[i, 0].imshow(images[i, :, :, 0], cmap='gray')
+        axs[i, 0].imshow(normalized_image, cmap='gray')
         axs[i, 0].axis('off')
         axs[i, 0].set_title('Image')
 
@@ -116,88 +122,12 @@ def plot_predictions(images, ground_truths, predictions, num=5):
         axs[i, 1].set_title('Ground Truth Mask')
 
         # Plot predicted mask
-        axs[i, 2].imshow(predictions[i, :, :, 0], cmap='gray')
+        axs[i, 2].imshow(normalized_prediction, cmap='gray')
         axs[i, 2].axis('off')
         axs[i, 2].set_title('Predicted Mask')
 
     plt.tight_layout()
     plt.show()
-
-# class TrailsDataset(Dataset):
-#     """
-#     A PyTorch Dataset class for handling seismic line image and mask data.
-#
-#     Args:
-#         data_dir (str): Path to the directory containing image and mask files.
-#         max_height (float): Maximum height value to clip and normalize the image.
-#         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
-#     """
-#     def __init__(self, data_dir, max_height, transform=None):
-#         self.data_dir = data_dir
-#         self.max_height = max_height  # Set max_height here
-#         self.transform = transform
-#         self.image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
-#
-#     def __len__(self):
-#         return len(self.image_files)
-#
-#     def __getitem__(self, idx):
-#         img_path = self.image_files[idx]
-#         image_file = self.image_files[idx]
-#         label_file = image_file.replace('_image.tif', '_label.tif')
-#         image_path = os.path.join(self.data_dir, image_file)
-#         label_path = os.path.join(self.data_dir, label_file)
-#
-#         # Open the image and mask, handle nodata by setting it to 0
-#         with rasterio.open(image_path) as img_src:
-#             image = img_src.read(1).astype(np.float32)
-#             image_nodata = img_src.nodata
-#             if image_nodata is not None:
-#                 image[image == image_nodata] = 0  # Replace nodata with 0
-#
-#             # Clip CHM values to [0, max_height] and normalize to [0, 1]
-#             image = normalize_image(image)
-#             # image = np.clip(image, 0, self.max_height)
-#             # image = image / self.max_height  # Normalize to [0, 1]
-#
-#         with rasterio.open(label_path) as label_src:
-#             mask = label_src.read(1).astype(np.uint8)  # Ensure mask is binary (0, 1)
-#             mask_nodata = label_src.nodata
-#             if mask_nodata is not None:
-#                 mask[mask == mask_nodata] = 0  # Replace nodata with 0
-#
-#         # Check the image and mask shape
-#         if image.shape != mask.shape:
-#             print(f"Before AUGM >> Size mismatch: {img_path}, Image size: {image.shape}, Mask size: {mask.shape}")
-#
-#         # Ensure the image is a tensor
-#         if not isinstance(image, torch.Tensor):
-#             image = torch.from_numpy(image).unsqueeze(0).float()
-#
-#         # Ensure the mask is a tensor
-#         if not isinstance(mask, torch.Tensor):
-#             mask = torch.from_numpy(mask).long()
-#
-#         return image, mask
-
-
-# ------------------- Image Normalization -------------------
-
-def normalize_image(image, max_height=25.0):
-    """
-    Normalize the image by clipping and scaling.
-
-    Args:
-        image (np.array): Image array to normalize.
-        max_height (float): Maximum height value for clipping.
-
-    Returns:
-        torch.Tensor: Normalized image.
-    """
-    image = np.clip(image, 0, max_height)
-    image = image / max_height
-    return image
-
 
 # ------------------- Augmentation -------------------
 
@@ -414,40 +344,29 @@ class EarlyStopping:
 
 # ------------------- Image Checking  -------------------
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-
 def calculate_statistics(image, mask):
-    """
-    Calculate statistics for image and mask.
-    """
+    """Calculate and print statistics for image and mask."""
     image_stats = {
         "min": np.min(image),
         "max": np.max(image),
         "mean": np.mean(image),
         "std": np.std(image)
     }
+
+    mask_stats = {
+        "min": np.min(mask),
+        "max": np.max(mask),
+        "mean": np.mean(mask),
+        "std": np.std(mask)
+    }
+
     unique, counts = np.unique(mask, return_counts=True)
     mask_stats = dict(zip(unique, counts))
 
+    print('Image stats: ', image_stats)
+    print('Mask stats: ', mask_stats)
+
     return image_stats, mask_stats
-
-def plot_histograms(image, mask, axs, idx):
-    """
-    Plot histograms for image and mask.
-    """
-    axs[0].hist(image.ravel(), bins=50, alpha=0.5, label=f'Image {idx + 1}')
-    axs[0].set_title('Image Pixel Distributions')
-    axs[0].set_xlabel('Pixel Values')
-    axs[0].set_ylabel('Frequency')
-    axs[0].legend()
-
-    axs[1].hist(mask.ravel(), bins=[-0.5, 0.5, 1.5], alpha=0.5, label=f'Mask {idx + 1}')
-    axs[1].set_title('Binary Mask Distributions')
-    axs[1].set_xlabel('Mask Values (0 = background, 1 = line)')
-    axs[1].set_ylabel('Frequency')
-    axs[1].legend()
 
 def save_image_mask_pair(image, mask, idx, figures_dir):
     """
@@ -465,3 +384,135 @@ def save_image_mask_pair(image, mask, idx, figures_dir):
 
     return pair_figure_path
 
+# Helper Functions
+def adjust_window(window, max_width, max_height):
+    col_off, row_off, width, height = window.flatten()
+    if col_off + width > max_width:
+        width = max_width - col_off
+    if row_off + height > max_height:
+        height = max_height - row_off
+    return Window(col_off, row_off, width, height)
+
+def pad_to_shape(array, target_shape):
+    diff_height = target_shape[0] - array.shape[0]
+    diff_width = target_shape[1] - array.shape[1]
+    padded_array = np.pad(array, ((0, diff_height), (0, diff_width), (0, 0)), 'constant')
+    return padded_array
+
+def normalize_image(image):
+    """
+    Normalize image to the [0, 1] range.
+    - Replace all negative values with 0.
+    - Use the next smallest positive value as the minimum for normalization.
+    """
+    # Replace NaNs with 0
+    image = np.nan_to_num(image, nan=0.0)
+
+    # Clip negative values to 0
+    image = np.clip(image, 0, np.max(image))
+
+    # Find the next smallest positive value after 0
+    positive_values = image[image > 0]
+    if len(positive_values) == 0:
+        min_positive_val = 0.01  # Default in case no positive value exists
+    else:
+        min_positive_val = np.min(positive_values)
+
+    # Normalize the image using the next smallest positive value
+    max_val = np.max(image)
+
+    # print(f"Min positive value: {min_positive_val}, Max value: {max_val}")
+
+    # Avoid division by zero if all values are the same
+    if max_val - min_positive_val == 0:
+        return image  # No normalization needed if all values are the same
+
+    # Normalize to [0, 1] using the next positive value
+    return (image - min_positive_val) / (max_val - min_positive_val)
+
+def predict_patch_optimized(model, patch, vis=False):
+    if patch.max() != patch.min():
+        patch_norm = normalize_image(patch)
+    else:
+        patch_norm = patch
+
+    num_bands = patch.shape[2] if len(patch.shape) == 3 else 1
+    patch_norm = patch_norm.reshape(1, patch_norm.shape[0], patch_norm.shape[1], num_bands)
+
+    pred_patch = model.predict(patch_norm)
+
+    if vis:
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        plt.imshow(patch_norm.squeeze(), cmap='gray', vmin=0, vmax=1)
+        plt.title('Original Patch')
+        plt.axis('off')
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(pred_patch.squeeze(), cmap='gray', vmin=0, vmax=1)
+        plt.title('Predicted Patch')
+        plt.axis('off')
+        plt.show()
+
+    pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
+
+    return pred_patch
+
+def process_block(src, x_start, x_end, y_start, y_end, patch_size, stride, model, vis=False):
+    pred_accumulator = np.zeros((y_end - y_start, x_end - x_start), dtype=np.uint8)
+    counts = np.zeros((y_end - y_start, x_end - x_start), dtype=np.uint16)
+
+    for i in tqdm(range(y_start, y_end, stride), desc=f"Processing y range {y_start} to {y_end}"):
+        for j in range(x_start, x_end, stride):
+            window = Window(j, i, patch_size, patch_size)
+            window = adjust_window(window, x_end, y_end)
+            patch = src.read(window=window)
+            patch = np.moveaxis(patch, 0, -1)
+
+            if patch.shape[0] != patch_size or patch.shape[1] != patch_size:
+                patch = pad_to_shape(patch, (patch_size, patch_size))
+
+            pred_patch = predict_patch_optimized(model, patch, vis)
+
+            col_off, row_off, width, height = map(int, window.flatten())
+            pred_patch = pred_patch[:height, :width]
+            accumulator_indices = (slice(row_off - y_start, row_off + height - y_start),
+                                   slice(col_off - x_start, col_off + width - x_start))
+            pred_accumulator[accumulator_indices] = np.maximum(pred_accumulator[accumulator_indices], pred_patch)
+            counts[accumulator_indices] += 1
+
+    return pred_accumulator
+
+def predict_tif_optimized(model, path, patch_size, overlap_size, vis, model_name):
+    stride = patch_size - overlap_size
+    with rasterio.open(path) as src:
+        original_height, original_width = src.shape
+        pred_accumulator = np.zeros((original_height, original_width), dtype=np.uint8)
+        counts = np.zeros((original_height, original_width), dtype=np.uint16)
+
+        for i in tqdm(range(0, original_height, stride)):
+            for j in range(0, original_width, stride):
+                window = Window(j, i, patch_size, patch_size)
+                window = adjust_window(window, original_width, original_height)
+                patch = src.read(window=window)
+                patch = np.moveaxis(patch, 0, -1)
+
+                if patch.shape[0] != patch_size or patch.shape[1] != patch_size:
+                    patch = pad_to_shape(patch, (patch_size, patch_size))
+
+                pred_patch = predict_patch_optimized(model, patch, vis)
+                col_off, row_off, width, height = map(int, window.flatten())
+                pred_patch = pred_patch[:height, :width]
+                pred_accumulator[row_off:row_off+height, col_off:col_off+width] = np.maximum(pred_accumulator[row_off:row_off+height, col_off:col_off+width], pred_patch)
+                counts[row_off:row_off+height, col_off:col_off+width] += 1
+
+        final_pred = pred_accumulator
+
+        output_path = path[:-4] + f'_{model_name}_{overlap_size}.tif'
+        profile = src.profile.copy()
+        profile.update(dtype='uint8', nodata=0, compress='LZW', tiled=True, blockxsize=BLOCK_SIZE, blockysize=BLOCK_SIZE)
+
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            dst.write(final_pred[np.newaxis, :, :])
+
+    return output_path
