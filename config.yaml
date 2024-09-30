@@ -69,7 +69,7 @@ preprocessing:
     patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_DTM10cm/'  # Use a placeholder
   rasterization:
     rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
-#    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm_norm_2022_Human_DTMnorm50_512_byCNN_5ep_250avg.tif
+#    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm10cm_CNNsum.tif
 
 # Project Parameters
 project:

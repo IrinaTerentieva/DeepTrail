@@ -47,6 +47,12 @@ class UNetFlow(FlowSpec):
 
         self.patch_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
 
+        # Initialize WandB for the specific experiment
+        wandb_key_path = os.path.join(self.base_dir, 'Scripts', 'training', 'wandb_key.txt')
+        with open(wandb_key_path, 'r') as f:
+            wandb_key = f.read().strip()
+        wandb.login(key=wandb_key)
+
         # Initialize WandB and upload config + scripts
         wandb.init(project=self.config['project']['project_name'])
 
