@@ -9,6 +9,7 @@ import yaml
 from metaflow import FlowSpec, step
 from datetime import datetime
 import shutil
+from rasterio.windows import Window
 
 class PatchExtractionFlow(FlowSpec):
     """
@@ -43,6 +44,9 @@ class PatchExtractionFlow(FlowSpec):
 
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
+            self.patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
+            self.config['preprocessing']['patch_extraction']['patches'] = self.config['preprocessing']['patch_extraction'][
+            'patches'].format(patch_size_pixels=self.patch_size_pixels)
 
         # Log the start time and config information
         self.start_time = datetime.now()
@@ -96,73 +100,82 @@ class PatchExtractionFlow(FlowSpec):
     @step
     def extract_patches(self):
         """
-        Extract patches around each random point and save CHM and label raster data.
+        Extract patches with a fixed pixel size (e.g., 512x512 pixels) around each random point
+        and save CHM and label raster data. The actual physical size of each patch will vary
+        depending on the resolution of the raster.
         """
-        # Define buffer size in terms of pixels
-        patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
-        print(f"Processing patches with size: {patch_size_pixels} pixels...")
+        # Define patch size in pixels (for UNet)
+        patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']  # e.g., 512
+        print(f"Processing patches with fixed size: {patch_size_pixels}x{patch_size_pixels} pixels...")
 
         # Open rasters only in this step (to avoid pickling issues)
         chm_path = os.path.join(self.base_dir(), self.config['preprocessing']['input_files']['chm'])
-        rasterized_canopy_path = os.path.join(self.base_dir(), self.config['preprocessing']['rasterization']['rasterized_canopy_footprint'])
+        rasterized_canopy_path = os.path.join(self.base_dir(), self.config['preprocessing']['rasterization'][
+            'rasterized_canopy_footprint'])
         print(f"Reading CHM from: {chm_path}")
         print(f"Reading rasterized canopy from: {rasterized_canopy_path}")
 
         with rasterio.open(chm_path) as chm, rasterio.open(rasterized_canopy_path) as cnn_raster:
-            # Get the resolution of the raster (meters per pixel)
-            resolution_x = abs(chm.transform[0])
-            resolution_y = abs(chm.transform[4])
-
-            # Calculate buffer size in meters based on pixel size
-            buffer_size_meters_x = patch_size_pixels * resolution_x / 2
-            buffer_size_meters_y = patch_size_pixels * resolution_y / 2
-            print(f"Buffer size in meters: {buffer_size_meters_x} x {buffer_size_meters_y}")
+            # Get raster bounds
+            chm_bounds = chm.bounds
+            cnn_bounds = cnn_raster.bounds
 
             # Loop over each point to extract patches
             for ind, point_row in tqdm(self.points.iterrows(), total=self.points.shape[0]):
-                # Create a buffered area around the point, adjusted by the resolution
-                buffered_area = point_row.geometry.buffer(buffer_size_meters_x).envelope
-                buffered_box = box(*buffered_area.bounds)
-                chm_box = box(*chm.bounds)
+                # Get the point coordinates (in raster CRS)
+                point_x, point_y = point_row.geometry.x, point_row.geometry.y
 
-                # Check if the buffered area is within CHM bounds
-                if not chm_box.contains(buffered_box):
-                    print(f"Skipping point {ind}, out of bounds.")
+                # Convert the point coordinates to pixel coordinates (col, row) in the raster
+                col, row = chm.index(point_x, point_y)
+
+                # Define the window (area) to extract around the point
+                window = Window(
+                    col_off=col - patch_size_pixels // 2,
+                    row_off=row - patch_size_pixels // 2,
+                    width=patch_size_pixels,
+                    height=patch_size_pixels
+                )
+
+                # Check if the window is within the raster bounds
+                if (col - patch_size_pixels // 2 < 0 or
+                        row - patch_size_pixels // 2 < 0 or
+                        col + patch_size_pixels // 2 > chm.width or
+                        row + patch_size_pixels // 2 > chm.height):
+                    print(f"Skipping point {ind} - out of bounds.")
                     continue
 
-                # Extract CHM data within the buffered area
+                # Extract CHM data within the window
                 try:
-                    chm_data, chm_transform = mask(chm, [buffered_area], crop=True)
-                    # Keep original CHM values, no filtering out negative values
+                    chm_data = chm.read(1, window=window)
                 except rasterio.errors.WindowError as e:
                     print(f"Skipping point {ind} due to CHM WindowError: {e}")
                     continue
 
-                # Extract CNN raster data within the buffered area
+                # Extract CNN raster data within the window
                 try:
-                    cnn_data, cnn_transform = mask(cnn_raster, [buffered_area], crop=True)
+                    cnn_data = cnn_raster.read(1, window=window)
                 except rasterio.errors.WindowError as e:
                     print(f"Skipping point {ind} due to CNN WindowError: {e}")
                     continue
 
                 # Handle NoData in labels
                 cnn_nodata_value = cnn_raster.nodata
-                label_raster = cnn_data[0].astype(np.uint8)  # Keep labels as integers
+                label_raster = cnn_data.astype(np.uint8)  # Keep labels as integers
                 if cnn_nodata_value is not None:
-                    label_raster[cnn_data[0] == cnn_nodata_value] = 0  # Treat NoData as background (0)
+                    label_raster[cnn_data == cnn_nodata_value] = 0  # Treat NoData as background (0)
 
                 # Save CHM data
                 output_image_path = os.path.join(self.output_dir, f"{ind}_image.tif")
-                with rasterio.open(output_image_path, 'w', driver='GTiff', height=chm_data.shape[1],
-                                   width=chm_data.shape[2], count=1, dtype=chm_data.dtype,
-                                   transform=chm_transform) as out_image:
-                    out_image.write(chm_data[0], 1)
+                with rasterio.open(output_image_path, 'w', driver='GTiff', height=chm_data.shape[0],
+                                   width=chm_data.shape[1], count=1, dtype=chm_data.dtype,
+                                   transform=chm.window_transform(window)) as out_image:
+                    out_image.write(chm_data, 1)
 
                 # Save label raster
                 output_label_path = os.path.join(self.output_dir, f"{ind}_label.tif")
                 with rasterio.open(output_label_path, 'w', driver='GTiff', height=label_raster.shape[0],
                                    width=label_raster.shape[1], count=1, dtype=label_raster.dtype,
-                                   transform=cnn_transform) as out_label:
+                                   transform=cnn_raster.window_transform(window)) as out_label:
                     out_label.write(label_raster, 1)
 
         print("Patch extraction complete!")
