@@ -73,5 +73,5 @@ preprocessing:
 
 # Project Parameters
 project:
-  max_height: 25
+  max_height: 20
   project_name: UNet_HumanFootprint
