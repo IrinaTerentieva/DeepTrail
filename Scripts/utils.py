@@ -66,6 +66,7 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
         with rasterio.open(mask_path) as src:
             mask = src.read(1)
             mask = apply_threshold(mask, threshold)
+            mask = remove_small_objects(mask, min_size=200)
             mask = np.expand_dims(mask, axis=-1)
             mask = tf.image.resize(mask, self.image_size)
 
@@ -82,6 +83,17 @@ class TrailsDataGenerator(tf.keras.utils.Sequence):
         image = tf.image.random_brightness(image, max_delta=0.1)
         image = tf.image.random_contrast(image, lower=0.9, upper=1.1)
         return image, mask
+
+def remove_small_objects(mask, min_size=200):
+    """Remove small objects from mask."""
+    from scipy.ndimage import label
+    labeled_mask, num_features = label(mask)
+    small_objects_mask = np.zeros_like(mask)
+    for i in range(1, num_features + 1):
+        component = np.where(labeled_mask == i, 1, 0)
+        if np.sum(component) < min_size:
+            small_objects_mask += component
+    return mask - small_objects_mask
 
 def apply_threshold(mask, threshold=0.5):
     """

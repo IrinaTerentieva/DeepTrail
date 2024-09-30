@@ -26,7 +26,7 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
     train_images = [os.path.join(patches_dir, f) for f in all_files if 'image' in f]
     train_labels = [os.path.join(patches_dir, f.replace('image', 'label')) for f in train_images if os.path.isfile(os.path.join(patches_dir, f.replace('image', 'label')))]
 
-    print(f"Total training images: {len(train_images)} with shape: {train_images[0].shape}")
+    print(f"Total training images: {len(train_images)}")
 
     # Create validation generator
     val_gen = TrailsDataGenerator(train_images, train_labels, batch_size=10, augment=False)
