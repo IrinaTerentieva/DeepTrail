@@ -34,7 +34,7 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
     # Test Predictions
     X_val_batch, y_val_batch = val_gen[0]
     preds_val_batch = model.predict(X_val_batch, verbose=0)
-    calculate_statistics(X_val_batch, preds_val_batch)
+    stats = calculate_statistics(X_val_batch, preds_val_batch)
     plot_predictions(X_val_batch, y_val_batch, preds_val_batch, num_patches)
 
 
