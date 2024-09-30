@@ -4,16 +4,14 @@ import warnings
 import rasterio
 import numpy as np
 import tensorflow as tf
-import wandb
+from rasterio.windows import Window
+from tqdm import tqdm
 import sys
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from metaflow import FlowSpec, step
 from custom_unet import custom_unet
-from utils import sliding_window_prediction, save_predictions
-
-# cd /media/irro/All/HumanFootprint/Scripts/predictions
-# python predictions.py run
+from utils import process_block, adjust_window, pad_to_shape, predict_patch_optimized, save_predictions
 
 # Suppress TensorFlow and CUDA logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -55,7 +53,7 @@ class UNetPredictionFlow(FlowSpec):
         self.output_dir = os.path.join(self.base_dir, self.config['prediction_params']['output_dir'])
         self.model_path = os.path.join(self.base_dir, self.config['prediction_params']['model_path'])
         self.patch_size = self.config['prediction_params']['patch_size']
-        self.stride = self.config['prediction_params']['overlap_size']
+        self.overlap_size = self.config['prediction_params']['overlap_size']
         self.max_height = self.config['project']['max_height']
         self.next(self.load_model)
 
@@ -88,35 +86,62 @@ class UNetPredictionFlow(FlowSpec):
 
         print(f"Starting prediction on {self.test_image_path} using a sliding window.")
 
-        # Perform sliding window prediction
-        self.full_prediction = sliding_window_prediction(
-            image_path=self.test_image_path,
+        # Perform prediction with a sliding window
+        self.output_path = self.run_prediction_sliding_window(
             model=self.model,
+            input_tif_path=self.test_image_path,
             patch_size=self.patch_size,
-            stride=self.stride,
-            max_height=self.max_height
+            overlap_size=self.overlap_size
         )
 
         self.next(self.save_prediction)
+
+    def run_prediction_sliding_window(self, model, input_tif_path, patch_size, overlap_size):
+        """
+        Predict with sliding window and optimized memory usage for large TIF files.
+        """
+        stride = patch_size - overlap_size
+
+        with rasterio.open(input_tif_path) as src:
+            original_height, original_width = src.shape
+            pred_accumulator = np.zeros((original_height, original_width), dtype=np.uint8)
+            counts = np.zeros((original_height, original_width), dtype=np.uint16)
+
+            for i in tqdm(range(0, original_height, stride)):
+                for j in range(0, original_width, stride):
+                    window = Window(j, i, patch_size, patch_size)
+                    window = adjust_window(window, original_width, original_height)
+                    patch = src.read(window=window)
+                    patch = np.moveaxis(patch, 0, -1)
+
+                    if patch.shape[0] != patch_size or patch.shape[1] != patch_size:
+                        patch = pad_to_shape(patch, (patch_size, patch_size))
+
+                    pred_patch = predict_patch_optimized(model, patch)
+                    col_off, row_off, width, height = map(int, window.flatten())
+                    pred_patch = pred_patch[:height, :width]
+                    pred_accumulator[row_off:row_off+height, col_off:col_off+width] = np.maximum(pred_accumulator[row_off:row_off+height, col_off:col_off+width], pred_patch)
+                    counts[row_off:row_off+height, col_off:col_off+width] += 1
+
+            final_pred = pred_accumulator
+
+            # Save predicted image
+            output_path = input_tif_path[:-4] + f'_predicted_{overlap_size}.tif'
+            profile = src.profile.copy()
+            profile.update(dtype='uint8', nodata=0, compress='LZW', tiled=True, blockxsize=64, blockysize=64)
+
+            with rasterio.open(output_path, 'w', **profile) as dst:
+                dst.write(final_pred[np.newaxis, :, :])
+
+        return output_path
 
     @step
     def save_prediction(self):
         """
         Save the prediction output as a GeoTIFF.
         """
-        output_path = os.path.join(self.output_dir, 'predictions.tif')
-
-        # Save the predictions
-        print(f"Saving predictions to {output_path}")
-        save_predictions(
-            full_prediction=self.full_prediction,
-            output_path=output_path,
-            reference_image_path=self.test_image_path,
-            scale_factor=100,
-            config=self.config
-        )
-
-        print(f"Prediction saved successfully at {output_path}")
+        output_path = os.path.join(self.output_dir, 'final_predictions.tif')
+        print(f"Prediction saved successfully at {self.output_path}")
         self.next(self.end)
 
     @step
@@ -125,7 +150,6 @@ class UNetPredictionFlow(FlowSpec):
         End the prediction flow.
         """
         print("Prediction flow completed successfully!")
-
 
 if __name__ == '__main__':
     UNetPredictionFlow()
