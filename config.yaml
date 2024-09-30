@@ -59,15 +59,17 @@ prediction_params:
 preprocessing:
   input_files:
     chm: DATA/DTM/Airborne/DTM_10cm_binning_488_6131_496_6137.tif
+#    chm: DATA/DTM/Airborne/Kirby_nDTM50cm_2017.tif
     points: DATA/vector/RandomPoints/training_random_points_2000.gpkg
   output_dir:
     intermediate: DATA/intermediate
   patch_extraction:
     patch_size_pixels: 1024
-    n_random_points: 1000
-    patches: DATA/TrainingCNN/UNet_patches1024_DTM10cm/
+    n_random_points: 2000
+    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_DTM10cm/'  # Use a placeholder
   rasterization:
     rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
+#    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm_norm_2022_Human_DTMnorm50_512_byCNN_5ep_250avg.tif
 
 # Project Parameters
 project:
