@@ -1,22 +1,19 @@
 # cd /media/irro/All/HumanFootprint/Scripts/training
 # python U-Net_HumanFootprint.py run
 
-import yaml
 import os
-import warnings
-from metaflow import FlowSpec, step, batch, Parameter
-import numpy as np
-import rasterio
-import tensorflow as tf
-import wandb
 import sys
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import yaml
-import wandb
-import tensorflow as tf
-from metaflow import FlowSpec, step, batch, Parameter
 from custom_unet import custom_unet
+from utils import TrailsDataGenerator, iou, iou_thresholded, load_data, plot_predictions
+import yaml
+import os
+import warnings
+from metaflow import FlowSpec, step
+import numpy as np
+import tensorflow as tf
+import wandb
 from utils import TrailsDataGenerator, iou, iou_thresholded, load_data, plot_predictions
 
 # Load YAML config
@@ -28,19 +25,7 @@ def load_yaml_config(config_path):
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 
-# ---------------------- #
-# Parameters and Settings #
-# ---------------------- #
-
-# Environment and paths
-environment = os.getenv('ENVIRONMENT', 'local')
-username = 'irina.terenteva'
-
 class UNetFlow(FlowSpec):
-
-    environment = 'local'
-    # environment = 'hpc'
-    username = 'irina.terenteva'
 
     @property
     def base_dir(self):
@@ -54,14 +39,22 @@ class UNetFlow(FlowSpec):
 
     @step
     def start(self):
-
-        self.config_path = os.path.join(self.base_dir, 'config.yaml')
+        self.config_path = os.path.join(self.base_dir(), 'config.yaml')
         print(f"Loading configuration from: {self.config_path}")
 
         with open(self.config_path, 'r') as file:
             self.config = yaml.safe_load(file)
 
-        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'])
+        self.patch_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
+
+        # Initialize WandB and upload config + scripts
+        wandb.init(project=self.config['project']['project_name'])
+
+        # Upload config and scripts to WandB
+        wandb.save(self.config_path)
+        wandb.save('/media/irro/All/HumanFootprint/Scripts/training/U-Net_HumanFootprint.py')
+        wandb.save('/media/irro/All/HumanFootprint/Scripts/training/utils.py')
+
         self.next(self.load_data)
 
     @step
@@ -76,9 +69,6 @@ class UNetFlow(FlowSpec):
         Train the UNet model using the custom_unet architecture.
         """
         config = self.config
-
-        # Initialize WandB
-        wandb.init(project=config['project']['project_name'])
 
         # Set up model input shape
         input_shape = (config['model']['custom_unet']['patch_size'], config['model']['custom_unet']['patch_size'], 1)
@@ -116,7 +106,7 @@ class UNetFlow(FlowSpec):
             print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
             # Training step
-            history = model.fit(train_gen, validation_data=val_gen, epochs=config['training']['num_epochs'])
+            history = model.fit(train_gen, validation_data=val_gen, epochs=1)
 
             train_loss = history.history['loss'][0]
             val_loss = history.history['val_loss'][0]
@@ -127,10 +117,13 @@ class UNetFlow(FlowSpec):
             val_loss = val_results[0]  # Extract the validation loss (first element of the list)
             print(f"Validation Loss: {val_loss}")
 
-            # Plot predictions after each epoch
+            # Plot and log predictions after each epoch
             val_images, val_masks = next(iter(val_gen))
             val_preds = model.predict(val_images)
-            plot_predictions(val_images, val_masks, val_preds)
+
+            # Log a batch of predictions to WandB
+            for i in range(5):  # Log up to 5 predictions
+                wandb.log({"Prediction Image": wandb.Image(plot_predictions(val_images[i], val_masks[i], val_preds[i]))})
 
             # Check if validation loss improved
             if val_loss < best_val_loss:
