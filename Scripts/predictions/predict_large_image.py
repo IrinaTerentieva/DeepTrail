@@ -101,7 +101,7 @@ class UNetPredictionFlow(FlowSpec):
         self.model.load_weights(self.model_path)
         print("Model loaded successfully.")
 
-        self.next(self.predict)
+        self.next(self.predict_and_save)
 
     def preprocess_image(self, patch):
         """
@@ -110,10 +110,6 @@ class UNetPredictionFlow(FlowSpec):
         """
         # Normalize the image patch as done in the data generator
         patch = normalize_image(patch)
-
-        # Reshape patch to match the model input shape (1, H, W, C)
-        if patch.max() != patch.min():  # Check for valid image range
-            patch = normalize_image(patch)
         patch = patch.reshape(1, patch.shape[0], patch.shape[1], patch.shape[2])
 
         # Print shape for debugging
@@ -121,96 +117,71 @@ class UNetPredictionFlow(FlowSpec):
         return patch
 
     @step
-    def predict(self):
+    def predict_and_save(self):
         """
-        Perform sliding window prediction on the large input image.
+        Perform sliding window prediction on the large input image and save incrementally to disk.
         """
         stride = self.patch_size - self.overlap_size
 
-        # Perform sliding window prediction
-        with rasterio.open(self.input_image_path) as src:
-            original_height, original_width = src.shape
-            pred_accumulator = np.zeros((original_height, original_width), dtype=np.uint8)
-            counts = np.zeros((original_height, original_width), dtype=np.uint16)
-
-            print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...")
-            for i in tqdm(range(0, original_height, stride)):
-                for j in range(0, original_width, stride):
-                    window = Window(j, i, self.patch_size, self.patch_size)
-                    window = adjust_window(window, original_width, original_height)
-
-                    # Read the patch
-                    patch = src.read(window=window)
-                    self.print_verbose(f"Reading patch, original shape: {patch.shape}")
-                    patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
-                    self.print_verbose(f"After axis move (HWC format), shape: {patch.shape}")
-
-                    print("Before preprocessing")
-                    calculate_statistics(patch)
-
-                    # Pad if necessary
-                    if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
-                        patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
-                        self.print_verbose(f"After padding, shape: {patch.shape}")
-
-                    # Preprocess the patch (resize and normalize)
-                    patch_norm = self.preprocess_image(patch)
-                    print('After preprocessing')
-                    calculate_statistics(patch)
-                    self.print_verbose(f"After preprocessing, shape: {patch_norm.shape}")
-
-                    # Predict the patch
-                    # Make the prediction
-                    pred_patch = self.model.predict(patch_norm)
-                    pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
-                    self.print_verbose(f"Predicted patch shape: {pred_patch.shape}")
-
-                    # if True:
-                    #     import matplotlib.pyplot as plt
-                    #     plt.figure(figsize=(12, 6))
-                    #     plt.subplot(1, 2, 1)
-                    #     plt.imshow(patch_norm.squeeze(), cmap='gray', vmin=0, vmax=1)
-                    #     plt.title('Original Patch')
-                    #     plt.axis('off')
-                    #
-                    #     plt.subplot(1, 2, 2)
-                    #     plt.imshow(pred_patch.squeeze(), cmap='gray', vmin=10, vmax=100)
-                    #     plt.title('Predicted Patch')
-                    #     plt.axis('off')
-                    #     plt.show()
-
-                    # Unpad the patch back to its original size
-                    col_off, row_off, width, height = map(int, window.flatten())
-                    pred_patch = pred_patch[:height, :width]
-                    self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
-
-                    # Accumulate predictions
-                    pred_accumulator[row_off:row_off + height, col_off:col_off + width] = np.maximum(
-                        pred_accumulator[row_off:row_off + height, col_off:col_off + width], pred_patch)
-                    counts[row_off:row_off + height, col_off:col_off + width] += 1
-                print('Accumulation')
-
-            # Final predicted image
-            self.final_pred = pred_accumulator
-            print(f"Sliding window prediction completed.")
-
-        self.next(self.save_output)
-
-    @step
-    def save_output(self):
-        """
-        Save the predicted output as a GeoTIFF.
-        """
+        # Extract the base name of the input image
+        base_name = os.path.splitext(os.path.basename(self.input_image_path))[0]
+        model_name = self.config['model']['custom_unet']['architecture']
+        output_filename = f"{base_name}_{model_name}.tif"
         output_path = os.path.join(self.output_dir, 'predicted_image.tif')
 
+        # Open the input image and the output file for saving predictions
         with rasterio.open(self.input_image_path) as src:
+            original_height, original_width = src.shape
             profile = src.profile.copy()
-            profile.update(dtype='uint8', compress='LZW')
+            profile.update(dtype='uint8', compress='LZW', nodata=0)  # Set nodata value to 0
 
+            # Open the output file in write mode
             with rasterio.open(output_path, 'w', **profile) as dst:
-                dst.write(self.final_pred[np.newaxis, :, :])  # Save single-band prediction
+                print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...")
 
-        print(f"Predicted output saved to: {output_path}")
+                # Process each patch and write predictions incrementally
+                for i in tqdm(range(0, original_height, stride)):
+                    for j in range(0, original_width, stride):
+                        window = Window(j, i, self.patch_size, self.patch_size)
+                        window = adjust_window(window, original_width, original_height)
+
+                        # Read the patch
+                        patch = src.read(window=window)
+                        self.print_verbose(f"Reading patch, original shape: {patch.shape}")
+                        self.print_verbose(f"Stats before processing: {calculate_statistics(patch)}")
+                        patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
+
+                        # Pad if necessary
+                        if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
+                            patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
+                            self.print_verbose(f"After padding, shape: {patch.shape}")
+
+                        # Preprocess the patch (resize and normalize)
+                        patch_norm = self.preprocess_image(patch)
+
+                        print('After preprocessing')
+                        self.print_verbose(calculate_statistics(patch_norm))
+                        self.print_verbose(f"After preprocessing, shape: {patch_norm.shape}")
+
+                        # Predict the patch
+                        pred_patch = self.model.predict(patch_norm)
+                        pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
+                        self.print_verbose(f"Predicted patch shape: {pred_patch.shape}")
+
+                        # Unpad the patch back to its original size
+                        col_off, row_off, width, height = map(int, window.flatten())
+                        pred_patch = pred_patch[:height, :width]
+                        self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
+
+                        # Unpad the patch back to its original size
+                        col_off, row_off, width, height = map(int, window.flatten())
+                        pred_patch = pred_patch[:height, :width]
+                        self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
+
+                        # Write the prediction directly to the output file
+                        dst.write(pred_patch[np.newaxis, :, :], window=Window(col_off, row_off, width, height))
+
+                print(f"Sliding window prediction completed. Predictions saved to {output_path}.")
 
         self.next(self.end)
 

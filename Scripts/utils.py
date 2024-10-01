@@ -432,14 +432,15 @@ def normalize_image(image):
 
     # Normalize the image using the next smallest positive value
     max_val = np.max(image)
-    # print(f"Min positive value: {min_positive_val}, Max value: {max_val}")
 
     # Avoid division by zero if all values are the same
     if max_val - min_positive_val == 0:
         return image  # No normalization needed if all values are the same
 
     # Normalize to [0, 1] using the next positive value
-    return (image - min_positive_val) / (max_val - min_positive_val)
+    image = (image - min_positive_val) / (max_val - min_positive_val)
+
+    return image
 
 def process_block(src, x_start, x_end, y_start, y_end, patch_size, stride, model, vis=False):
     pred_accumulator = np.zeros((y_end - y_start, x_end - x_start), dtype=np.uint8)
