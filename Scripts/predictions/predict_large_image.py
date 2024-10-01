@@ -186,7 +186,6 @@ class UNetPredictionFlow(FlowSpec):
 
                 # Write the final averaged prediction to the output file
                 dst.write(final_prediction[np.newaxis, :, :].astype('uint8'))  # Convert to uint8 before writing
-
                 print(f"Sliding window prediction completed. Predictions saved to {output_path}.")
 
         self.next(self.end)
