@@ -389,11 +389,11 @@ def calculate_statistics(image, mask):
         "std": np.std(mask)
     }
 
-    unique, counts = np.unique(mask, return_counts=True)
-    mask_stats = dict(zip(unique, counts))
-
     print('Image stats: ', image_stats)
     print('Mask stats: ', mask_stats)
+
+    unique, counts = np.unique(mask, return_counts=True)
+    mask_stats = dict(zip(unique, counts))
 
     return image_stats, mask_stats
 
