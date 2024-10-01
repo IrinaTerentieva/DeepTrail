@@ -120,6 +120,7 @@ class UNetPredictionFlow(FlowSpec):
     def predict_and_save(self):
         """
         Perform sliding window prediction on the large input image and save incrementally to disk.
+        Averaging overlapping patches.
         """
         stride = self.patch_size - self.overlap_size
 
@@ -132,13 +133,16 @@ class UNetPredictionFlow(FlowSpec):
         with rasterio.open(self.input_image_path) as src:
             original_height, original_width = src.shape
             profile = src.profile.copy()
-            profile.update(dtype='uint8', compress='LZW', nodata=0)  # Set nodata value to 0
+            profile.update(dtype='float32', compress='LZW', nodata=0)  # Use float32 for averaging
 
-            # Open the output file in write mode
+            # Initialize accumulators for sum of predictions and counts
+            pred_accumulator = np.zeros((original_height, original_width), dtype=np.float32)
+            count_accumulator = np.zeros((original_height, original_width), dtype=np.uint16)
+
             with rasterio.open(output_path, 'w', **profile) as dst:
                 print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...")
 
-                # Process each patch and write predictions incrementally
+                # Process each patch and accumulate predictions
                 for i in tqdm(range(0, original_height, stride)):
                     for j in range(0, original_width, stride):
                         window = Window(j, i, self.patch_size, self.patch_size)
@@ -147,7 +151,6 @@ class UNetPredictionFlow(FlowSpec):
                         # Read the patch
                         patch = src.read(window=window)
                         self.print_verbose(f"Reading patch, original shape: {patch.shape}")
-                        self.print_verbose(f"Stats before processing: {calculate_statistics(patch)}")
                         patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
 
                         # Pad if necessary
@@ -158,13 +161,12 @@ class UNetPredictionFlow(FlowSpec):
                         # Preprocess the patch (resize and normalize)
                         patch_norm = self.preprocess_image(patch)
 
-                        print('After preprocessing')
                         self.print_verbose(calculate_statistics(patch_norm))
                         self.print_verbose(f"After preprocessing, shape: {patch_norm.shape}")
 
                         # Predict the patch
                         pred_patch = self.model.predict(patch_norm)
-                        pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
+                        pred_patch = (pred_patch * 100).squeeze().astype(np.float32)
                         self.print_verbose(f"Predicted patch shape: {pred_patch.shape}")
 
                         # Unpad the patch back to its original size
@@ -172,13 +174,18 @@ class UNetPredictionFlow(FlowSpec):
                         pred_patch = pred_patch[:height, :width]
                         self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
 
-                        # Unpad the patch back to its original size
-                        col_off, row_off, width, height = map(int, window.flatten())
-                        pred_patch = pred_patch[:height, :width]
-                        self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
+                        # Accumulate the prediction and counts
+                        pred_accumulator[row_off:row_off + height, col_off:col_off + width] += pred_patch
+                        count_accumulator[row_off:row_off + height, col_off:col_off + width] += 1
 
-                        # Write the prediction directly to the output file
-                        dst.write(pred_patch[np.newaxis, :, :], window=Window(col_off, row_off, width, height))
+                # Avoid division by zero
+                count_accumulator = np.where(count_accumulator == 0, 1, count_accumulator)
+
+                # Compute the average predictions
+                final_prediction = pred_accumulator / count_accumulator
+
+                # Write the final averaged prediction to the output file
+                dst.write(final_prediction[np.newaxis, :, :].astype('uint8'))  # Convert to uint8 before writing
 
                 print(f"Sliding window prediction completed. Predictions saved to {output_path}.")
 
