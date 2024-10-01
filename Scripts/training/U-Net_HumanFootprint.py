@@ -1,25 +1,16 @@
-# cd /media/irro/All/HumanFootprint/Scripts/training
-# python U-Net_HumanFootprint.py run
-
 import os
 import sys
+import shutil
+import yaml
+import warnings
+import numpy as np
+import tensorflow as tf
+import wandb
+from metaflow import FlowSpec, step, current
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from custom_unet import custom_unet
 from utils import TrailsDataGenerator, iou, iou_thresholded, load_data, plot_predictions
-import yaml
-import os
-import warnings
-from metaflow import FlowSpec, step
-import numpy as np
-import tensorflow as tf
-import wandb
-from utils import TrailsDataGenerator, iou, iou_thresholded, load_data, plot_predictions
-
-# Load YAML config
-def load_yaml_config(config_path):
-    with open(config_path, 'r') as file:
-        return yaml.safe_load(file)
 
 # Suppress TensorFlow and CUDA logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -43,21 +34,17 @@ class UNetFlow(FlowSpec):
     @step
     def start(self):
         """
-        Start step: Load configuration settings from the central config.yaml file.
+        Start step: Load configuration settings from the central config.yaml file and initialize WandB.
         """
-        # Access the base directory
+        # Load YAML configuration
         self.config_path = os.path.join(self.base_dir, 'config.yaml')
         print(f"Loading configuration from: {self.config_path}")
-
-        # Load YAML configuration
         with open(self.config_path, 'r') as file:
             self.config = yaml.safe_load(file)
 
         # Patch size and directory settings
         self.patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
-        self.config['preprocessing']['patch_extraction']['patches'] = self.config['preprocessing']['patch_extraction'][
-            'patches'].format(patch_size_pixels=self.patch_size_pixels)
-        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'])
+        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'].format(patch_size_pixels=self.patch_size_pixels))
 
         # Initialize WandB for the specific experiment
         wandb_key_path = os.path.join(self.base_dir, 'Scripts', 'training', 'wandb_key.txt')
@@ -66,9 +53,20 @@ class UNetFlow(FlowSpec):
         wandb.login(key=wandb_key)
 
         # Initialize WandB and upload config + scripts
-        wandb.init(project=self.config['project']['project_name'])
+        self.wandb_run = wandb.init(project=self.config['project']['project_name'], config=self.config)
 
-        # Upload config and scripts to WandB
+        # Log basic config info to WandB
+        wandb.config.update({
+            "architecture": "UNet",
+            "filters": self.config['model']['custom_unet']['filters'],
+            "num_layers": self.config['model']['custom_unet']['num_layers'],
+            "dropout": self.config['model']['custom_unet']['dropout'],
+            "learning_rate": self.config['training']['learning_rate'],
+            "batch_size": self.config['training']['batch_size'],
+            "epochs": self.config['training']['num_epochs'],
+        })
+
+        # Save config and scripts in WandB
         wandb.save(self.config_path)
         wandb.save('/media/irro/All/HumanFootprint/Scripts/training/U-Net_HumanFootprint.py')
         wandb.save('/media/irro/All/HumanFootprint/Scripts/training/utils.py')
@@ -77,8 +75,23 @@ class UNetFlow(FlowSpec):
 
     @step
     def load_data(self):
+        """
+        Load the dataset, logging the directories and dataset properties.
+        """
+        # Re-initialize WandB to ensure logging works in this step
+        wandb.init(project=self.config['project']['project_name'], resume=True)
+
         print('Directory with patches: ', self.patch_dir)
         self.train_images, self.val_images, self.train_labels, self.val_labels = load_data(self.patch_dir)
+
+        # Log dataset information to WandB
+        wandb.config.update({
+            "train_dataset_size": len(self.train_images),
+            "val_dataset_size": len(self.val_images),
+            "train_dataset_path": self.patch_dir,
+            "val_dataset_path": self.patch_dir
+        })
+
         self.next(self.train_model)
 
     @step
@@ -86,6 +99,9 @@ class UNetFlow(FlowSpec):
         """
         Train the UNet model using the custom_unet architecture.
         """
+        # Re-initialize WandB to ensure logging works in this step
+        wandb.init(project=self.config['project']['project_name'], resume=True)
+
         config = self.config
 
         # Set up model input shape
@@ -141,15 +157,39 @@ class UNetFlow(FlowSpec):
             val_images, val_masks = next(iter(val_gen))
             val_preds = model.predict(val_images)
 
-            # Log a batch of predictions to WandB
-            for i in range(5):  # Log up to 5 predictions
-                wandb.log({"Prediction Image": wandb.Image(plot_predictions(val_images[i], val_masks[i], val_preds[i]))})
-
             # Check if validation loss improved
             if val_loss < best_val_loss:
                 print(f"Validation loss improved from {best_val_loss} to {val_loss}. Saving model.")
                 best_val_loss = val_loss
-                model.save(dynamic_model_path.format(epoch=epoch, val_loss=val_loss))
+                model_save_path = dynamic_model_path.format(epoch=epoch, val_loss=val_loss)
+
+                # Save model, YAML config, and Python script in the model folder
+                model.save(model_save_path)
+                model_folder = os.path.dirname(model_save_path)
+                # Save files
+                shutil.copy(self.config_path, os.path.join(model_folder, f"unet_epoch_{epoch + 1}_config.yaml"))
+                shutil.copy(__file__, os.path.join(model_folder, f"unet_epoch_{epoch + 1}_training.py"))
+
+                # Save WandB run information
+                wandb_run_info = {
+                    "wandb_run_id": wandb.run.id,
+                    "wandb_run_name": wandb.run.name,
+                    "wandb_project": wandb.run.project,
+                    "wandb_url": wandb.run.url
+                }
+                with open(os.path.join(model_folder, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+                    yaml.dump(wandb_run_info, f)
+
+                # Save Metaflow flow information
+                metaflow_info = {
+                    "flow_id": current.flow_id,
+                    "run_id": current.run_id,
+                    "step_name": current.step_name,
+                    "task_id": current.task_id
+                }
+                with open(os.path.join(model_folder, f"metaflow_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+                    yaml.dump(metaflow_info, f)
+
                 patience_counter = 0  # Reset patience counter
             else:
                 patience_counter += 1
