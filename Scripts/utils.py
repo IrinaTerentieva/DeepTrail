@@ -128,35 +128,53 @@ def iou_thresholded(y_true, y_pred, threshold=0.5, smooth=1e-6):
     y_pred = tf.cast(y_pred > threshold, dtype=tf.float32)
     return iou(y_true, y_pred, smooth)
 
+
+import matplotlib.pyplot as plt
+
+
 def plot_predictions(images, ground_truths, predictions, num=5):
     """Plot images, ground truths, and predictions side by side with normalization."""
+
+    # Ensure we're working with 4D tensors (batch, height, width, channels)
+    if images.ndim == 3:  # If the input is 3D (single image), expand dimensions to match 4D
+        images = images[np.newaxis, ...]
+        ground_truths = ground_truths[np.newaxis, ...]
+        predictions = predictions[np.newaxis, ...]
+
     # Set num to the minimum between the actual batch size and the desired number of images
     num = min(images.shape[0], num)
 
+    # Create subplots
     fig, axs = plt.subplots(num, 3, figsize=(15, 5 * num))
+
+    # If only one row, convert axs into a 2D array for consistent indexing
+    if num == 1:
+        axs = [axs]
 
     for i in range(num):
         # Normalize images and predictions using the provided normalize_image function
-        normalized_image = normalize_image(images[i, :, :, 0])
-        normalized_prediction = normalize_image(predictions[i, :, :, 0])
+        normalized_image = normalize_image(images[i, :, :, 0])  # Normalize the first channel of the image
+        normalized_prediction = normalize_image(predictions[i, :, :, 0])  # Normalize first channel of the prediction
 
         # Plot original image
-        axs[i, 0].imshow(normalized_image, cmap='gray')
-        axs[i, 0].axis('off')
-        axs[i, 0].set_title('Image')
+        axs[i][0].imshow(normalized_image, cmap='gray')
+        axs[i][0].axis('off')
+        axs[i][0].set_title('Image')
 
         # Plot ground truth mask
-        axs[i, 1].imshow(ground_truths[i, :, :, 0], cmap='gray')
-        axs[i, 1].axis('off')
-        axs[i, 1].set_title('Ground Truth Mask')
+        axs[i][1].imshow(ground_truths[i, :, :, 0], cmap='gray')
+        axs[i][1].axis('off')
+        axs[i][1].set_title('Ground Truth Mask')
 
         # Plot predicted mask
-        axs[i, 2].imshow(normalized_prediction, cmap='gray')
-        axs[i, 2].axis('off')
-        axs[i, 2].set_title('Predicted Mask')
+        axs[i][2].imshow(normalized_prediction, cmap='gray')
+        axs[i][2].axis('off')
+        axs[i][2].set_title('Predicted Mask')
 
+    # Adjust layout
     plt.tight_layout()
     plt.show()
+
 
 # ------------------- Augmentation -------------------
 
