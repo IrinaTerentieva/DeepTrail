@@ -18,18 +18,18 @@ from rasterio.windows import Window
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 
-
 class UNetPredictionFlow(FlowSpec):
     """
     This flow handles the prediction of a large image using a sliding window approach:
     - Loads model
     - Reads large image
     - Predicts output using sliding window
-    - Saves output as a GeoTIFF
+    - Saves output as a GeoTIFF with improved efficiency by batching predictions.
     """
 
     environment = 'local'
     username = 'irina.terenteva'
+    batch_size = Parameter('batch_size', default=8, help="Batch size for predicting patches.")
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
@@ -120,6 +120,7 @@ class UNetPredictionFlow(FlowSpec):
     def predict_and_save(self):
         """
         Perform sliding window prediction on the large input image and save incrementally to disk.
+        Using batches for improved performance.
         """
         stride = self.patch_size - self.overlap_size
 
@@ -135,53 +136,68 @@ class UNetPredictionFlow(FlowSpec):
             profile = src.profile.copy()
             profile.update(dtype='uint8', compress='LZW', nodata=0)  # Set nodata value to 0
 
-            # Open the output file in write mode
+            # Batch accumulation
+            patches, coords = [], []
+
             with rasterio.open(output_path, 'w', **profile) as dst:
                 print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...")
 
-                # Process each patch and write predictions incrementally
+                # Process each patch and write predictions in batches
                 for i in tqdm(range(0, original_height, stride)):
                     for j in range(0, original_width, stride):
-                        window = Window(j, i, self.patch_size, self.patch_size)
-                        window = adjust_window(window, original_width, original_height)
+                        window_width = min(self.patch_size, original_width - j)
+                        window_height = min(self.patch_size, original_height - i)
+
+                        # Ensure window is within image boundaries
+                        window = Window(j, i, window_width, window_height)
 
                         # Read the patch
                         patch = src.read(window=window)
-                        self.print_verbose(f"Reading patch, original shape: {patch.shape}")
-                        self.print_verbose(f"Stats before processing: {calculate_statistics(patch)}")
                         patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
 
                         # Pad if necessary
                         if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
                             patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
-                            self.print_verbose(f"After padding, shape: {patch.shape}")
 
                         # Preprocess the patch (resize and normalize)
                         patch_norm = self.preprocess_image(patch)
-                        self.print_verbose(calculate_statistics(patch_norm))
-                        self.print_verbose(f"After preprocessing, shape: {patch_norm.shape}")
 
-                        # Predict the patch
-                        pred_patch = self.model.predict(patch_norm)
-                        pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
-                        self.print_verbose(f"Predicted patch shape: {pred_patch.shape}")
+                        patches.append(patch_norm)
+                        coords.append((i, j, window, patch.shape[0], patch.shape[1]))
 
-                        # Unpad the patch back to its original size
-                        col_off, row_off, width, height = map(int, window.flatten())
-                        pred_patch = pred_patch[:height, :width]
-                        self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
+                        # If we reached the batch size, process the batch
+                        if len(patches) == self.batch_size:
+                            self.process_batch_and_save(patches, coords, dst)
+                            patches, coords = [], []
 
-                        # Unpad the patch back to its original size
-                        col_off, row_off, width, height = map(int, window.flatten())
-                        pred_patch = pred_patch[:height, :width]
-                        self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
-
-                        # Write the prediction directly to the output file
-                        dst.write(pred_patch[np.newaxis, :, :], window=Window(col_off, row_off, width, height))
+                # Process any remaining patches
+                if patches:
+                    self.process_batch_and_save(patches, coords, dst)
 
                 print(f"Sliding window prediction completed. Predictions saved to {output_path}.")
 
         self.next(self.end)
+
+    def process_batch_and_save(self, patches, coords, dst):
+        """
+        Process a batch of patches and save the predictions to the output file.
+        """
+        patches = np.concatenate(patches, axis=0)
+        preds = self.model.predict(patches)
+
+        for idx, pred_patch in enumerate(preds):
+            pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
+            i, j, window, height, width = coords[idx]
+
+            # Adjust the window size to ensure it does not go out of bounds
+            window_width = min(self.patch_size, dst.width - j)
+            window_height = min(self.patch_size, dst.height - i)
+
+            # Unpad the patch back to its original size
+            pred_patch = pred_patch[:window_height, :window_width]
+
+            # Write the prediction directly to the output file
+            dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, window_width, window_height))
 
     @step
     def end(self):
