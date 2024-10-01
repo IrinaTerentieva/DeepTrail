@@ -9,9 +9,9 @@ import numpy as np
 import rasterio
 import tensorflow as tf
 from tqdm import tqdm
-from metaflow import FlowSpec, step
+from metaflow import FlowSpec, step, Parameter
 from custom_unet import custom_unet
-from utils import adjust_window, pad_to_shape, normalize_image, predict_patch_optimized
+from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics
 from rasterio.windows import Window
 
 # Suppress TensorFlow and CUDA logs
@@ -30,6 +30,7 @@ class UNetPredictionFlow(FlowSpec):
 
     environment = 'local'
     username = 'irina.terenteva'
+    verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
         """
@@ -39,6 +40,13 @@ class UNetPredictionFlow(FlowSpec):
             return f'/home/{self.username}/HumanFootprint/'
         else:
             return '/media/irro/All/HumanFootprint/'
+
+    def print_verbose(self, message):
+        """
+        Print debugging information only if verbosity is enabled.
+        """
+        if self.verbose:
+            print(message)
 
     @step
     def start(self):
@@ -60,7 +68,7 @@ class UNetPredictionFlow(FlowSpec):
         self.patch_size = self.config['prediction_params']['patch_size']
         self.overlap_size = self.config['prediction_params']['overlap_size']
 
-        print(f"Model Path: {self.model_path}")
+        print(f"\n******\nModel Path: {self.model_path}")
         print(f"Input Image Path: {self.input_image_path}")
         print(f"Output Directory: {self.output_dir}")
 
@@ -95,6 +103,23 @@ class UNetPredictionFlow(FlowSpec):
 
         self.next(self.predict)
 
+    def preprocess_image(self, patch):
+        """
+        Apply the same preprocessing steps used in training to the input image patch.
+        This includes resizing and normalization.
+        """
+        # Normalize the image patch as done in the data generator
+        patch = normalize_image(patch)
+
+        # Reshape patch to match the model input shape (1, H, W, C)
+        if patch.max() != patch.min():  # Check for valid image range
+            patch = normalize_image(patch)
+        patch = patch.reshape(1, patch.shape[0], patch.shape[1], patch.shape[2])
+
+        # Print shape for debugging
+        self.print_verbose(f"Preprocessed patch shape: {patch.shape}")
+        return patch
+
     @step
     def predict(self):
         """
@@ -116,23 +141,54 @@ class UNetPredictionFlow(FlowSpec):
 
                     # Read the patch
                     patch = src.read(window=window)
+                    self.print_verbose(f"Reading patch, original shape: {patch.shape}")
                     patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
+                    self.print_verbose(f"After axis move (HWC format), shape: {patch.shape}")
+
+                    print("Before preprocessing")
+                    calculate_statistics(patch)
 
                     # Pad if necessary
                     if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
                         patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
+                        self.print_verbose(f"After padding, shape: {patch.shape}")
+
+                    # Preprocess the patch (resize and normalize)
+                    patch_norm = self.preprocess_image(patch)
+                    print('After preprocessing')
+                    calculate_statistics(patch)
+                    self.print_verbose(f"After preprocessing, shape: {patch_norm.shape}")
 
                     # Predict the patch
-                    pred_patch = predict_patch_optimized(self.model, patch)
+                    # Make the prediction
+                    pred_patch = self.model.predict(patch_norm)
+                    pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
+                    self.print_verbose(f"Predicted patch shape: {pred_patch.shape}")
+
+                    # if True:
+                    #     import matplotlib.pyplot as plt
+                    #     plt.figure(figsize=(12, 6))
+                    #     plt.subplot(1, 2, 1)
+                    #     plt.imshow(patch_norm.squeeze(), cmap='gray', vmin=0, vmax=1)
+                    #     plt.title('Original Patch')
+                    #     plt.axis('off')
+                    #
+                    #     plt.subplot(1, 2, 2)
+                    #     plt.imshow(pred_patch.squeeze(), cmap='gray', vmin=10, vmax=100)
+                    #     plt.title('Predicted Patch')
+                    #     plt.axis('off')
+                    #     plt.show()
 
                     # Unpad the patch back to its original size
                     col_off, row_off, width, height = map(int, window.flatten())
                     pred_patch = pred_patch[:height, :width]
+                    self.print_verbose(f"After unpadding, shape: {pred_patch.shape}")
 
                     # Accumulate predictions
                     pred_accumulator[row_off:row_off + height, col_off:col_off + width] = np.maximum(
                         pred_accumulator[row_off:row_off + height, col_off:col_off + width], pred_patch)
                     counts[row_off:row_off + height, col_off:col_off + width] += 1
+                print('Accumulation')
 
             # Final predicted image
             self.final_pred = pred_accumulator

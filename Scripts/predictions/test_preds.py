@@ -41,6 +41,10 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
 # ------------------- #
 
 if __name__ == '__main__':
+
+    ######## Model is HERE:
+    model_path = os.path.join('/media/irro/All/HumanFootprint/Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5')
+
     # Load configuration
     config_path = '/media/irro/All/HumanFootprint/config.yaml'
     config = load_yaml_config(config_path)
@@ -59,7 +63,6 @@ if __name__ == '__main__':
     num_layers = model_config['num_layers']
 
     # Load the TensorFlow model
-    model_path = os.path.join('/media/irro/All/HumanFootprint/Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5')
     print(f"Loading model from: {model_path}")
     themodel = custom_unet(
         input_shape=input_shape,

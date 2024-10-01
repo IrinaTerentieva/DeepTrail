@@ -373,7 +373,7 @@ class EarlyStopping:
 
 # ------------------- Image Checking  -------------------
 
-def calculate_statistics(image, mask):
+def calculate_statistics(image):
     """Calculate and print statistics for image and mask."""
     image_stats = {
         "min": np.min(image),
@@ -382,20 +382,9 @@ def calculate_statistics(image, mask):
         "std": np.std(image)
     }
 
-    mask_stats = {
-        "min": np.min(mask),
-        "max": np.max(mask),
-        "mean": np.mean(mask),
-        "std": np.std(mask)
-    }
-
     print('Image stats: ', image_stats)
-    print('Mask stats: ', mask_stats)
 
-    unique, counts = np.unique(mask, return_counts=True)
-    mask_stats = dict(zip(unique, counts))
-
-    return image_stats, mask_stats
+    return image_stats
 
 def save_image_mask_pair(image, mask, idx, figures_dir):
     """
@@ -458,34 +447,6 @@ def normalize_image(image):
 
     # Normalize to [0, 1] using the next positive value
     return (image - min_positive_val) / (max_val - min_positive_val)
-
-def predict_patch_optimized(model, patch, vis=False):
-    if patch.max() != patch.min():
-        patch_norm = normalize_image(patch)
-    else:
-        patch_norm = patch
-
-    num_bands = patch.shape[2] if len(patch.shape) == 3 else 1
-    patch_norm = patch_norm.reshape(1, patch_norm.shape[0], patch_norm.shape[1], num_bands)
-
-    pred_patch = model.predict(patch_norm)
-
-    if vis:
-        plt.figure(figsize=(12, 6))
-        plt.subplot(1, 2, 1)
-        plt.imshow(patch_norm.squeeze(), cmap='gray', vmin=0, vmax=1)
-        plt.title('Original Patch')
-        plt.axis('off')
-
-        plt.subplot(1, 2, 2)
-        plt.imshow(pred_patch.squeeze(), cmap='gray', vmin=0, vmax=1)
-        plt.title('Predicted Patch')
-        plt.axis('off')
-        plt.show()
-
-    pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
-
-    return pred_patch
 
 def process_block(src, x_start, x_end, y_start, y_end, patch_size, stride, model, vis=False):
     pred_accumulator = np.zeros((y_end - y_start, x_end - x_start), dtype=np.uint8)
