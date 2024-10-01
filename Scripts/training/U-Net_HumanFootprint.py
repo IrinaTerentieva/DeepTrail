@@ -98,6 +98,8 @@ class UNetFlow(FlowSpec):
                             num_classes=config['model']['custom_unet']['num_classes'],
                             output_activation=config['model']['custom_unet']['output_activation'])
 
+        self.model_architecture = model.to_json()
+
         # Compile the model
         model.compile(optimizer=tf.optimizers.Adam(learning_rate=config['training']['learning_rate']),
                       loss='binary_crossentropy', metrics=[iou, iou_thresholded])
