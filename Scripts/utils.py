@@ -381,9 +381,6 @@ def calculate_statistics(image):
         "mean": np.mean(image),
         "std": np.std(image)
     }
-
-    print('Image stats: ', image_stats)
-
     return image_stats
 
 def save_image_mask_pair(image, mask, idx, figures_dir):
@@ -426,19 +423,15 @@ def normalize_image(image):
     # Replace NaNs with 0
     image = np.nan_to_num(image, nan=0.0)
 
-    # Clip negative values to 0
-    image = np.clip(image, 0, np.max(image))
+    # Clip negative values to -10
+    image = np.clip(image, -10, np.max(image))
 
     # Find the next smallest positive value after 0
-    positive_values = image[image > 0]
-    if len(positive_values) == 0:
-        min_positive_val = 0.01  # Default in case no positive value exists
-    else:
-        min_positive_val = np.min(positive_values)
+    min_value = image[image > -10]
+    min_positive_val = np.min(min_value)
 
     # Normalize the image using the next smallest positive value
     max_val = np.max(image)
-
     # print(f"Min positive value: {min_positive_val}, Max value: {max_val}")
 
     # Avoid division by zero if all values are the same
