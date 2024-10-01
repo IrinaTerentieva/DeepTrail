@@ -49,7 +49,8 @@ training:
 
 # Prediction Parameters
 prediction_params:
-  model_path: Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5
+#  model_path: Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5
+  model_path: Models/Weights/10cm/Human_DTM_512_byCNN_9ep.h5
   output_dir: DATA/Test_Models
   overlap_size: 256
   patch_size: 512
@@ -58,20 +59,19 @@ prediction_params:
 # Preprocessing Parameters
 preprocessing:
   input_files:
-    chm: DATA/DTM/Airborne/DTM_10cm_binning_488_6131_496_6137.tif
-#    chm: DATA/DTM/Airborne/Kirby_nDTM50cm_2017.tif
+#    chm: DATA/DTM/Airborne/DTM_10cm_binning_488_6131_496_6137.tif
+    chm: DATA/DTM/Airborne/Kirby_nDTM10cm_mean6m.tif
     points: DATA/vector/RandomPoints/training_random_points_2000.gpkg
   output_dir:
     intermediate: DATA/intermediate
   patch_extraction:
-    patch_size_pixels: 256
+    patch_size_pixels: 1024
     n_random_points: 2000
-    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_nDTM50cm/'  # Use a placeholder
+    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_nDTM10cm/'  # Use a placeholder
   rasterization:
     rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
 #    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm10cm_CNNsum.tif
 
 # Project Parameters
 project:
-  max_height: 20
   project_name: UNet_HumanFootprint

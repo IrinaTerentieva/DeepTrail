@@ -30,13 +30,11 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
 
     # Create validation generator
     val_gen = TrailsDataGenerator(train_images, train_labels, batch_size=10, augment=False)
-
     # Test Predictions
     X_val_batch, y_val_batch = val_gen[0]
     preds_val_batch = model.predict(X_val_batch, verbose=0)
     stats = calculate_statistics(X_val_batch, preds_val_batch)
-    plot_predictions(X_val_batch, y_val_batch, preds_val_batch, num_patches)
-
+    plot = plot_predictions(X_val_batch, y_val_batch, preds_val_batch, num_patches)
 
 # ------------------- #
 # Main Script         #
@@ -46,6 +44,9 @@ if __name__ == '__main__':
     # Load configuration
     config_path = '/media/irro/All/HumanFootprint/config.yaml'
     config = load_yaml_config(config_path)
+    patch_size_pixels = config['preprocessing']['patch_extraction']['patch_size_pixels']
+    config['preprocessing']['patch_extraction']['patches'] = config['preprocessing']['patch_extraction'][
+        'patches'].format(patch_size_pixels=patch_size_pixels)
 
     # Extract model configuration
     model_config = config['model']['custom_unet']
