@@ -125,9 +125,8 @@ class UNetPredictionFlow(FlowSpec):
 
         # Extract the base name of the input image
         base_name = os.path.splitext(os.path.basename(self.input_image_path))[0]
-        model_name = self.config['model']['custom_unet']['architecture']
-        output_filename = f"{base_name}_{model_name}.tif"
-        output_path = os.path.join(self.output_dir, 'predicted_image.tif')
+        model_name = os.path.basename(self.config['prediction_params']['model_path'])[:-3]
+        output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}.tif")
 
         # Open the input image and the output file for saving predictions
         with rasterio.open(self.input_image_path) as src:
