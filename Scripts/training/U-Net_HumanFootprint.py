@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 import wandb
 from metaflow import FlowSpec, step, current
+
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from custom_unet import custom_unet
@@ -17,7 +18,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 
 class UNetFlow(FlowSpec):
-
     environment = 'local'
     username = 'irina.terenteva'
 
@@ -44,7 +44,8 @@ class UNetFlow(FlowSpec):
 
         # Patch size and directory settings
         self.patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
-        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'].format(patch_size_pixels=self.patch_size_pixels))
+        self.patch_dir = os.path.join(self.base_dir, self.config['preprocessing']['patch_extraction']['patches'].format(
+            patch_size_pixels=self.patch_size_pixels))
 
         # Initialize WandB for the specific experiment
         wandb_key_path = os.path.join(self.base_dir, 'Scripts', 'training', 'wandb_key.txt')
@@ -114,18 +115,19 @@ class UNetFlow(FlowSpec):
                             num_classes=config['model']['custom_unet']['num_classes'],
                             output_activation=config['model']['custom_unet']['output_activation'])
 
-        self.model_architecture = model.to_json()
-
         # Compile the model
         model.compile(optimizer=tf.optimizers.Adam(learning_rate=config['training']['learning_rate']),
                       loss='binary_crossentropy', metrics=[iou, iou_thresholded])
+
+        # Build a meaningful model name
+        model_name = f"UNet-patch{self.patch_size_pixels}-lr{config['training']['learning_rate']}-epoch{{epoch}}-val_loss{{val_loss:.2f}}"
 
         # Set up dynamic model checkpoint path
         checkpoint_dir = os.path.join(self.base_dir, 'Models', 'checkpoints')
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
-        dynamic_model_path = os.path.join(checkpoint_dir, 'unet_epoch_{epoch:02d}_valloss_{val_loss:.2f}.h5')
+        dynamic_model_path = os.path.join(checkpoint_dir, f"{model_name}")
 
         # Create data generators for training and validation
         train_gen = TrailsDataGenerator(self.train_images, self.train_labels,
@@ -161,34 +163,15 @@ class UNetFlow(FlowSpec):
             if val_loss < best_val_loss:
                 print(f"Validation loss improved from {best_val_loss} to {val_loss}. Saving model.")
                 best_val_loss = val_loss
-                model_save_path = dynamic_model_path.format(epoch=epoch, val_loss=val_loss)
 
-                # Save model, YAML config, and Python script in the model folder
-                model.save(model_save_path)
-                model_folder = os.path.dirname(model_save_path)
-                # Save files
-                shutil.copy(self.config_path, os.path.join(model_folder, f"unet_epoch_{epoch + 1}_config.yaml"))
-                shutil.copy(__file__, os.path.join(model_folder, f"unet_epoch_{epoch + 1}_training.py"))
+                # Save model architecture and weights in universal format
+                model_save_path = dynamic_model_path.format(epoch=epoch + 1, val_loss=val_loss)
+                model.save_weights(f"{model_save_path}.weights.h5")  # Save weights
+                with open(os.path.join(checkpoint_dir, f'{model_name}.json'), 'w') as json_file:
+                    json_file.write(model.to_json())  # Save architecture
 
-                # Save WandB run information
-                wandb_run_info = {
-                    "wandb_run_id": wandb.run.id,
-                    "wandb_run_name": wandb.run.name,
-                    "wandb_project": wandb.run.project,
-                    "wandb_url": wandb.run.url
-                }
-                with open(os.path.join(model_folder, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
-                    yaml.dump(wandb_run_info, f)
-
-                # Save Metaflow flow information
-                metaflow_info = {
-                    "flow_id": current.flow_id,
-                    "run_id": current.run_id,
-                    "step_name": current.step_name,
-                    "task_id": current.task_id
-                }
-                with open(os.path.join(model_folder, f"metaflow_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
-                    yaml.dump(metaflow_info, f)
+                # Save config, scripts, and metadata
+                self.save_metadata(checkpoint_dir, epoch, model_name)
 
                 patience_counter = 0  # Reset patience counter
             else:
@@ -200,9 +183,38 @@ class UNetFlow(FlowSpec):
                 print("Early stopping triggered.")
                 break
 
-        # Finish the WandB logging
-        wandb.finish()
         self.next(self.end)
+
+    def save_metadata(self, model_folder, epoch, model_name):
+        """
+        Save the config, training script, and metadata once in the same folder as the model.
+        """
+        # Save the YAML config file
+        shutil.copy(self.config_path, os.path.join(model_folder, f"{model_name}_config.yaml"))
+
+        # Save the Python script
+        shutil.copy(__file__, os.path.join(model_folder, f"{model_name}_training.py"))
+
+        # Save WandB run information
+        wandb_run_info = {
+            "wandb_run_id": wandb.run.id,
+            "wandb_run_name": wandb.run.name,
+            "wandb_project": wandb.run.project,
+            "wandb_url": wandb.run.url
+        }
+        with open(os.path.join(model_folder, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+            yaml.dump(wandb_run_info, f)
+
+        # Save Metaflow flow information
+        metaflow_info = {
+            "run_id": current.run_id,
+            "step_name": current.step_name,
+            "task_id": current.task_id
+        }
+        with open(os.path.join(model_folder, f"metaflow_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+            yaml.dump(metaflow_info, f)
+
+        print(f"Metadata saved in: {model_folder}")
 
     @step
     def end(self):
@@ -210,6 +222,8 @@ class UNetFlow(FlowSpec):
         Final step to indicate the end of training.
         """
         print("UNet training completed!")
+        wandb.finish()
+
 
 if __name__ == '__main__':
     UNetFlow()
