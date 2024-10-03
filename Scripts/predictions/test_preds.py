@@ -33,7 +33,7 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
     # Test Predictions
     X_val_batch, y_val_batch = val_gen[0]
     preds_val_batch = model.predict(X_val_batch, verbose=0)
-    stats = calculate_statistics(X_val_batch, preds_val_batch)
+    stats = calculate_statistics(preds_val_batch)
     plot = plot_predictions(X_val_batch, y_val_batch, preds_val_batch, num_patches)
 
 # ------------------- #
@@ -43,7 +43,8 @@ def test_model_on_patches(model, patches_dir, num_patches=5):
 if __name__ == '__main__':
 
     ######## Model is HERE:
-    model_path = os.path.join('/media/irro/All/HumanFootprint/Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5')
+    # model_path = os.path.join('/media/irro/All/HumanFootprint/Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5')
+    model_path = os.path.join('/media/irro/All/HumanFootprint/Models/checkpoints/UNet-patch1024-lr0.0001-epoch12-val_loss0.42.weights.h5')
 
     # Load configuration
     config_path = '/media/irro/All/HumanFootprint/config.yaml'
@@ -77,4 +78,4 @@ if __name__ == '__main__':
 
     # Test the model on patches
     patches_dir = os.path.join('/media/irro/All/HumanFootprint/', config['preprocessing']['patch_extraction']['patches'])
-    test_model_on_patches(themodel, patches_dir, num_patches=2)
+    test_model_on_patches(themodel, patches_dir, num_patches=4)

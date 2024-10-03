@@ -8,6 +8,9 @@ import tensorflow as tf
 import wandb
 from metaflow import FlowSpec, step, current
 
+
+### TOO many trails: playful-plasma-8
+
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from custom_unet import custom_unet
