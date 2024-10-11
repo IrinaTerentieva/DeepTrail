@@ -75,8 +75,8 @@ def visualize_and_simplify_lines(gdf, raster_path, plot_endpoints=True, plot_con
 
     # Modify the cost map: Set very high cost for areas with zero probability
     cost_map = 100 - probability_map  # Convert probability to cost
-    cost_map = np.where(cost_map > 90, cost_map * 1.3, cost_map)
-    cost_map[probability_map < 1] = 200  # Assign very large cost to 0-probability areas
+    cost_map = np.where(cost_map > 50, cost_map * 1.5, cost_map)
+    cost_map[probability_map < 3] = 200  # Assign very large cost to 0-probability areas
 
     # Debug: Plot the cost map
     plot_cost_map(cost_map)
@@ -173,11 +173,14 @@ base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
 
 gdf = gpd.read_file(input_shapefile)
 
+# Filter out lines shorter than the threshold
+gdf = gdf[gdf.geometry.length >= 5]
+
 # Set the raster file path (probability map)
 raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
 
 # Set threshold distance for connecting points (e.g., 100 meters)
-threshold_distance = 50.0
+threshold_distance = 200.0
 
 # Call the function with visualization options and a connection threshold
 simplified_gdf = visualize_and_simplify_lines(gdf, raster_file, plot_endpoints=False, plot_connections=False,
