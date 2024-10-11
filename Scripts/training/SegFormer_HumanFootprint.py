@@ -15,7 +15,7 @@ from metaflow import current
 
 # Add parent directory (where utils.py is located) to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils_segformer import SeismicLineDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, \
+from utils_segformer import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, \
     plot_histograms, save_image_mask_pair
 
 # Set environment for CUDA memory management
@@ -31,7 +31,7 @@ os.environ["WANDB_SILENT"] = "false"
 # python SegFormer_HumanFootprint.py run
 # ---------------------------
 
-class SeismicLineSegmentationFlow(FlowSpec):
+class TrailsFlow(FlowSpec):
     # Fetch environment from environment variable
     environment = 'local'
     # environment = 'hpc'
@@ -119,7 +119,7 @@ class SeismicLineSegmentationFlow(FlowSpec):
         augmentations = build_augmentations(self.config)
 
         # Initialize dataset and dataloaders using self.resolved_data_dir
-        dataset = SeismicLineDataset(data_dir=self.dataset_path, transform=augmentations)
+        dataset = TrailsDataset(data_dir=self.dataset_path, transform=augmentations)
         print(f"Total dataset length: {len(dataset)}")
 
         train_size = int(0.8 * len(dataset))
@@ -434,4 +434,4 @@ class SeismicLineSegmentationFlow(FlowSpec):
 
 
 if __name__ == "__main__":
-    SeismicLineSegmentationFlow()
+    TrailsFlow()
