@@ -1,0 +1,98 @@
+# Model Configuration
+models:
+  mit-b0:
+    architecture: segformer
+    depths: [2, 2, 2, 2]  # Depths for each stage
+    hidden_sizes: [32, 64, 160, 256]  # Feature sizes for each stage
+    decoder_hidden_size: 256
+    aspp_out_channels: 256
+    aspp_ratios: [1, 6, 12, 18]
+    attention_dropout_prob: 0.05
+    use_aspp: true
+
+  mit-b3:
+    architecture: segformer
+    depths: [3, 4, 18, 3]  # Depths for each stage
+    hidden_sizes: [64, 128, 320, 512]
+    decoder_hidden_size: 768
+    aspp_out_channels: 256
+    aspp_ratios: [1, 6, 12, 18]
+    attention_dropout_prob: 0.1
+    use_aspp: true
+
+# Experiment Configuration
+experiments:
+#  learning_rates: [0.00001, 0.000001, 0.0000001]  # Learning rates to test
+  learning_rates: [0.00001 ]  # Learning rates to test
+  datasets:
+    UNet_patches1024_nDTM10cm: DATA/TrainingCNN/UNet_patches1024_nDTM10cm/
+#  architectures: ['mit-b0', 'mit-b3']
+  architectures: ['mit-b0']
+
+# Augmentation Configuration
+augmentations:
+  brightness_contrast: true
+  elastic_transform: true
+  horizontal_flip: true
+  random_rotate90: true
+  rotate: true
+  vertical_flip: true
+  gaussian_noise: true
+  scale: true
+
+# Logging and WandB Configuration
+logging:
+  project_name: "UNet_HumanFootprint"
+  save_model: true  # Save model checkpoints
+  save_logs: true   # Save logs to WandB
+  log_images: true  # Log data, label, and prediction images
+
+# Prediction Parameters
+prediction_params:
+#  model_path: Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5
+  model_path: Models/checkpoints/UNet-patch1024-lr0.0001-epoch12-val_loss0.42.weights.h5       ### TOO many trails: playful-plasma-8
+#  model_path: Models/Weights/10cm/Human_DTM_512_byCNN_9ep.h5
+  output_dir: DATA/Test_Models
+  overlap_size: 256
+  patch_size: 512
+#  test_image_path: DATA/DTM/Drone/PFT_KirbySouth_July2022_DTM.tif
+  test_image_path: DATA/DTM/Airborne/Kirby_10cm_normDTM6m_fen.tif
+
+# Preprocessing Parameters
+preprocessing:
+  input_files:
+#    chm: DATA/DTM/Airborne/DTM_10cm_binning_488_6131_496_6137.tif
+    chm: DATA/DTM/Airborne/Kirby_nDTM10cm_mean6m.tif
+    points: DATA/vector/RandomPoints/training_random_points_2000.gpkg
+  output_dir:
+    intermediate: DATA/intermediate
+  patch_extraction:
+    patch_size_pixels: 1024
+    n_random_points: 2000
+    patches: 'DATA/TrainingCNN/UNet_patches{patch_size_pixels}_nDTM10cm/'  # Use a placeholder
+  rasterization:
+    rasterized_canopy_footprint: DATA/Products/Unet/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif
+#    rasterized_canopy_footprint: DATA/Products/Unet/Kirby_DTM50cm10cm_CNNsum.tif
+
+# Project Parameters
+project:
+  project_name: UNet_HumanFootprint
+
+# Training Parameters
+training:
+  batch_size: 8  # Default batch size for training
+  num_epochs: 100  # Number of epochs
+  early_stopping_patience: 15  # Early stopping patience
+  binarization_threshold: 0.5  # Default is 0.5 if not provided
+
+prediction:
+  architecture_to_predict: 'blooming_jazz_2'
+  model_path: Models/best_segformer_epoch_28_val_loss_0.3363.pth
+#  model_path: Models/best_segformer_epoch_4_val_loss_0.4561.pth
+#  architecture_to_predict: 'mit-b3'
+#  test_image_path: DATA/raw/CHM/KirbyFen_CHM25cm_2017.tif
+  test_image_path: DATA/Test_Models/ABMI_chm_mosaic_4_res05.tif
+#  test_image_path: DATA/raw/CHM/Surmont_CHM_50cm.tif
+  output_dir: DATA/Test_Models
+  patch_size: 1024
+  overlap_size: 800

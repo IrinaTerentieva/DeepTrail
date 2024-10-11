@@ -13,23 +13,24 @@ import torch.nn as nn
 
 # Add parent directory (where utils.py is located) to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, plot_histograms, save_image_mask_pair
+from utils_segformer import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, plot_histograms, save_image_mask_pair
 
 # Set environment for CUDA memory management
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 torch.cuda.empty_cache()
 
-print(torch.cuda.memory_summary())
+os.environ["WANDB_SILENT"] = "false"
 
 # ---------------------------
-# cd /media/irro/All/HumanFootprint/Scripts/training
-# python Training_HumanFootprint.py run
+### works - blooming jazz 2 | fiery
+# cd /media/irro/All/LineFootprint/Scripts/training
+# python SegFormer_LineFootprint_Metaflow.py run
 # ---------------------------
 
-class SeismicLineSegmentationFlow(FlowSpec):
+class TrailsFlow(FlowSpec):
     # Fetch environment from environment variable
-    # environment = 'local'
-    environment = 'hpc'
+    environment = 'local'
+    # environment = 'hpc'
     username = 'irina.terenteva'
 
     @property
@@ -38,9 +39,9 @@ class SeismicLineSegmentationFlow(FlowSpec):
         Dynamically set the base directory depending on environment.
         """
         if self.environment == 'hpc':
-            return f'/home/{self.username}/LineFootprint/'
+            return f'/home/{self.username}/HumanFootprint/'
         else:
-            return '/media/irro/All/LineFootprint/'
+            return '/media/irro/All/HumanFootprint/'
 
     @step
     def start(self):
@@ -48,7 +49,7 @@ class SeismicLineSegmentationFlow(FlowSpec):
         Load the configuration file, initialize directories and experiment combinations (learning rate, dataset, architecture).
         """
 
-        self.config_path = os.path.join(self.base_dir, 'config.yaml')
+        self.config_path = os.path.join(self.base_dir, 'config_segformer.yaml')
         print(f"Loading configuration from: {self.config_path}")
 
         # Load the config file
@@ -77,6 +78,9 @@ class SeismicLineSegmentationFlow(FlowSpec):
         dataset_path = os.path.join(self.base_dir, self.config['experiments']['datasets'][dataset_name])
         print(f"Processing dataset: {dataset_name} at {dataset_path}")
         print(f"Learning rate: {learning_rate}, Architecture: {architecture}")
+
+        # Get the threshold from the YAML file (you can define it in your config)
+        binarization_threshold = self.config['training'].get('binarization_threshold', 0.5)  # Default is 0.5 if not provided
 
         # Setup the necessary variables (e.g., batch size, num_epochs, etc.)
         self.batch_size = self.config['training']['batch_size']
@@ -114,14 +118,16 @@ class SeismicLineSegmentationFlow(FlowSpec):
             "learning_rate": learning_rate,
             "num_epochs": self.config['training']['num_epochs'],
             "architecture": architecture,
+            "binarization_threshold": binarization_threshold  # Track the threshold in WandB
         })
 
         # Build augmentations based on YAML config
         augmentations = build_augmentations(self.config)
 
-        # Initialize dataset and dataloaders using self.resolved_data_dir
-        dataset = TrailsDataset(data_dir=self.dataset_path, max_height=self.config['project']['max_height'],
-                                     transform=augmentations)
+        # Initialize dataset and dataloaders using self.resolved_data_dir with the binarization threshold
+        dataset = TrailsDataset(data_dir=self.dataset_path,
+                                transform=augmentations,
+                                threshold=binarization_threshold)  # Pass the threshold here
         print(f"Total dataset length: {len(dataset)}")
 
         train_size = int(0.8 * len(dataset))
@@ -143,7 +149,6 @@ class SeismicLineSegmentationFlow(FlowSpec):
         Save figures and statistics as artifacts.
         """
         print("Saving image-label pairs and performing additional checks...")
-
 
         # Initialize lists to hold statistics and class imbalance data
         self.image_statistics = []
@@ -355,6 +360,8 @@ class SeismicLineSegmentationFlow(FlowSpec):
                                           f'best_segformer_epoch_{epoch + 1}_val_loss_{avg_val_loss:.4f}.pth')
                 torch.save(self.model.state_dict(), model_path)
 
+                print(torch.cuda.memory_summary())
+
             # Early stopping
             early_stopping(avg_val_loss)
             if early_stopping.early_stop:
@@ -391,4 +398,4 @@ class SeismicLineSegmentationFlow(FlowSpec):
         print("Flow completed successfully.")
 
 if __name__ == "__main__":
-    SeismicLineSegmentationFlow()
+    TrailsFlow()
