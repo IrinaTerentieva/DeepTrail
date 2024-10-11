@@ -34,7 +34,7 @@ os.environ["WANDB_SILENT"] = "false"
 class TrailsFlow(FlowSpec):
     # Fetch environment from environment variable
     environment = 'local'
-    # environment = 'hpc'
+    environment = 'hpc'
     username = 'irina.terenteva'
 
     @property
