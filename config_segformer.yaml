@@ -25,7 +25,7 @@ experiments:
 #  learning_rates: [0.00001, 0.000001, 0.0000001]  # Learning rates to test
   learning_rates: [0.00001 ]  # Learning rates to test
   datasets:
-    UNet_patches1024_nDTM10cm: DATA/TrainingCNN/UNet_patches1024_nDTM10cm/
+    patches1024_nDTM10cm: DATA/TrainingCNN/UNet_patches1024_nDTM10cm/
 #  architectures: ['mit-b0', 'mit-b3']
   architectures: ['mit-b0']
 
@@ -76,7 +76,7 @@ preprocessing:
 
 # Project Parameters
 project:
-  project_name: UNet_HumanFootprint
+  project_name: HumanFootprint_SegFormer
 
 # Training Parameters
 training:
