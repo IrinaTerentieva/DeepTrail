@@ -6,11 +6,28 @@ import numpy as np
 import rasterio
 from skimage.graph import route_through_array
 
+def plot_probability_map(probability_map):
+    plt.figure(figsize=(10, 10))
+    plt.imshow(probability_map, cmap='viridis')
+    plt.colorbar(label='Probability')
+    plt.title('Original Probability Map')
+    plt.show()
+
+def plot_cost_map(cost_map):
+    plt.figure(figsize=(10, 10))
+    plt.imshow(cost_map, cmap='hot')
+    plt.colorbar(label='Cost')
+    plt.title('Cost Map')
+    plt.show()
+
 def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True, plot_connections=True, connection_threshold=None):
     # Load the raster (probability map)
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
         transform = src.transform
+
+    # Debug: Plot the probability map
+    plot_probability_map(probability_map)
 
     # Create lists to store the points and line IDs
     points = []
@@ -31,6 +48,20 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
         points.append(end_point)
         line_ids.append(idx)  # Same line ID for both start and end points
         line_ids.append(idx)  # Same line ID for both start and end points
+
+    # Modify the cost map: Set very high cost for areas with zero probability
+    cost_map = 100 - probability_map  # Convert probability to cost
+    cost_map = np.where(cost_map>90, cost_map*1.3, cost_map)
+    cost_map[probability_map < 1] = 200  # Assign very large cost to 0-probability areas
+
+    # Debug: Plot the cost map
+    plot_cost_map(cost_map)
+
+    # Check how many areas have high cost
+    zero_prob_count = np.sum(probability_map == 0)
+    high_cost_count = np.sum(cost_map == 200)
+    print(f"Number of 0-probability areas: {zero_prob_count}")
+    print(f"Number of areas with high cost (1e6): {high_cost_count}")
 
     # Convert points to numpy array for efficient distance calculations
     all_coords = np.array([(p.x, p.y) for p in points])
@@ -62,8 +93,11 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
             start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
             end_raster_idx = point_to_raster_indices(Point(all_coords[nearest_idx]), transform)
 
+            # Debug: Print cost values at the start and end points
+            print(f"Cost at start point (row: {start_raster_idx[0]}, col: {start_raster_idx[1]}): {cost_map[start_raster_idx[0], start_raster_idx[1]]}")
+            print(f"Cost at end point (row: {end_raster_idx[0]}, col: {end_raster_idx[1]}): {cost_map[end_raster_idx[0], end_raster_idx[1]]}")
+
             # Calculate the least cost path based on the probability map
-            cost_map = 100 - probability_map  # Convert probability to cost (lower values = less cost)
             indices, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
 
             # Convert raster indices back to geographic coordinates
@@ -78,33 +112,6 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
     points_gdf = gpd.GeoDataFrame(geometry=points, crs=gdf.crs)
     connections_gdf = gpd.GeoDataFrame(geometry=closest_connections, crs=gdf.crs)
 
-    # Assign a color to each line ID
-    unique_ids = list(set(line_ids))
-    colors = {line_id: plt.cm.get_cmap('tab20')(i % 20) for i, line_id in enumerate(unique_ids)}
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    # Plot the original LineStrings
-    gdf.plot(ax=ax, color='blue', linewidth=1, label='LineStrings')
-
-    if plot_endpoints:
-        # Plot points colored by their corresponding line ID
-        for i, point in points_gdf.iterrows():
-            ax.plot(point.geometry.x, point.geometry.y, marker='o', color=colors[line_ids[i]], markersize=10)
-
-    if plot_connections:
-        # Plot the least cost path connections
-        connections_gdf.plot(ax=ax, color='orange', linestyle='--', linewidth=1, label='Connections')
-
-    # Add title and legend
-    plt.title('LineStrings with Points and Least Cost Connections')
-    plt.legend()
-
-    # Show plot if any visualization flag is true
-    if plot_endpoints or plot_connections:
-        plt.show()
-
     return connections_gdf
 
 # Load the shapefile
@@ -115,15 +122,12 @@ gdf = gpd.read_file(input_shapefile)
 raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
 
 # Set threshold distance for connecting points (e.g., 100 meters)
-threshold_distance = 100.0
+threshold_distance = 500.0
 
 # Call the function with visualization options and a connection threshold
 connections_gdf = visualize_lines_with_least_cost_paths(gdf, raster_file, plot_endpoints=True, plot_connections=True, connection_threshold=threshold_distance)
 
 # Specify the output path for the GeoPackage
 output_gpkg = '/media/irro/All/HumanFootprint/DATA/intermediate/least_cost_connections.gpkg'
-
-# Save the GeoDataFrame with the connections to the GeoPackage
 connections_gdf.to_file(output_gpkg, driver='GPKG')
-
 print(f"Saved output as GeoPackage to {output_gpkg}")
