@@ -5,7 +5,9 @@ from scipy.spatial import cKDTree
 import numpy as np
 import rasterio
 from skimage.graph import route_through_array
-
+from shapely.ops import unary_union
+import pandas as pd
+import os
 
 def plot_probability_map(probability_map):
     plt.figure(figsize=(10, 10))
@@ -23,8 +25,26 @@ def plot_cost_map(cost_map):
     plt.show()
 
 
-def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True, plot_connections=True,
-                                          connection_threshold=None, buffer_size=10):
+def remove_duplicate_lines(gdf, tolerance=5):
+    """
+    Simplifies the GeoDataFrame by removing lines that are very close to each other.
+    The tolerance defines the distance below which lines are considered duplicative.
+    """
+    # Spatially join lines that are within the tolerance
+    gdf['buffer'] = gdf.geometry.buffer(tolerance)
+    gdf['representative'] = gdf['buffer'].apply(lambda x: unary_union([x]))
+
+    # Drop duplicates based on spatial overlap (first occurrence is kept)
+    simplified_gdf = gdf.drop_duplicates(subset='representative')
+
+    # Drop the helper columns
+    simplified_gdf = simplified_gdf.drop(columns=['buffer', 'representative'])
+
+    return simplified_gdf
+
+
+def visualize_and_simplify_lines(gdf, raster_path, plot_endpoints=True, plot_connections=True,
+                                 connection_threshold=None, buffer_size=10, tolerance=5):
     # Load the raster (probability map)
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
@@ -131,32 +151,40 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
             median_costs.append(best_median_cost)
             lengths.append(best_connection.length)
 
-    # Create GeoDataFrames for points and connections, including median cost and length as attributes
-    points_gdf = gpd.GeoDataFrame(geometry=points, crs=gdf.crs)
+    # Create GeoDataFrame for the newly generated connections
     connections_gdf = gpd.GeoDataFrame({
         'geometry': closest_connections,
         'median_cost': median_costs,
         'length': lengths
     }, crs=gdf.crs)
 
-    return connections_gdf
+    # Combine with original GeoDataFrame
+    combined_gdf = pd.concat([gdf, connections_gdf], ignore_index=True)
+
+    # Simplify the combined GeoDataFrame by removing duplicate lines based on proximity
+    simplified_gdf = remove_duplicate_lines(combined_gdf, tolerance=tolerance)
+
+    return simplified_gdf
 
 
 # Load the shapefile
 input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
+base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
+
 gdf = gpd.read_file(input_shapefile)
 
 # Set the raster file path (probability map)
 raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
 
 # Set threshold distance for connecting points (e.g., 100 meters)
-threshold_distance = 500.0
+threshold_distance = 50.0
 
 # Call the function with visualization options and a connection threshold
-connections_gdf = visualize_lines_with_least_cost_paths(gdf, raster_file, plot_endpoints=True, plot_connections=True,
-                                                        connection_threshold=threshold_distance)
+simplified_gdf = visualize_and_simplify_lines(gdf, raster_file, plot_endpoints=False, plot_connections=False,
+                                              connection_threshold=threshold_distance)
 
-# Specify the output path for the GeoPackage
-output_gpkg = '/media/irro/All/HumanFootprint/DATA/intermediate/least_cost_connections2.gpkg'
-connections_gdf.to_file(output_gpkg, driver='GPKG')
-print(f"Saved output as GeoPackage to {output_gpkg}")
+# Set the output path by adding "_connected" to the original filename
+output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected.gpkg'
+simplified_gdf.to_file(output_gpkg, driver='GPKG')
+print(f"Saved simplified output as GeoPackage to {output_gpkg}")
+
