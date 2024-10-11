@@ -421,7 +421,7 @@ for tif_path in tif_files:
         crs = src.crs
         print('Start')
 
-        threshold = 30
+        threshold = 10
         skel, g = extract_network_from_tif(tif_path, threshold)
         while len(g.edges) < 10:
             print('Ooops')
