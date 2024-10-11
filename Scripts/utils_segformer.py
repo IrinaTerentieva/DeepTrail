@@ -22,11 +22,10 @@ class TrailsDataset(Dataset):
         max_height (float): Maximum height value to clip and normalize the image.
         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
     """
-    def __init__(self, data_dir, transform=None, threshold=0):
+    def __init__(self, data_dir, transform=None):
         self.data_dir = data_dir
         self.transform = transform
         self.image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
-        self.threshold = threshold  # Set the threshold for binarization
 
     def __len__(self):
         return len(self.image_files)
@@ -52,8 +51,6 @@ class TrailsDataset(Dataset):
             mask_nodata = label_src.nodata
             if mask_nodata is not None:
                 mask[mask == mask_nodata] = 0  # Replace nodata with 0
-            if threshold > 0:
-                mask = np.where(mask >= self.threshold, 1, 0).astype(np.uint8)
 
         # Check the image and mask shape
         if image.shape != mask.shape:

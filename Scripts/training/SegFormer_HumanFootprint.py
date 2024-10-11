@@ -10,10 +10,13 @@ from tqdm import tqdm
 import sys
 import os
 import torch.nn as nn
+import shutil
+from metaflow import current
 
 # Add parent directory (where utils.py is located) to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils_segformer import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, plot_histograms, save_image_mask_pair
+from utils_segformer import SeismicLineDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, \
+    plot_histograms, save_image_mask_pair
 
 # Set environment for CUDA memory management
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
@@ -21,13 +24,14 @@ torch.cuda.empty_cache()
 
 os.environ["WANDB_SILENT"] = "false"
 
+
 # ---------------------------
 ### works - blooming jazz 2 | fiery
-# cd /media/irro/All/LineFootprint/Scripts/training
-# python SegFormer_LineFootprint_Metaflow.py run
+# cd /media/irro/All/HumanFootprint/Scripts/training
+# python SegFormer_HumanFootprint.py run
 # ---------------------------
 
-class TrailsFlow(FlowSpec):
+class SeismicLineSegmentationFlow(FlowSpec):
     # Fetch environment from environment variable
     environment = 'local'
     # environment = 'hpc'
@@ -79,9 +83,6 @@ class TrailsFlow(FlowSpec):
         print(f"Processing dataset: {dataset_name} at {dataset_path}")
         print(f"Learning rate: {learning_rate}, Architecture: {architecture}")
 
-        # Get the threshold from the YAML file (you can define it in your config)
-        binarization_threshold = self.config['training'].get('binarization_threshold', 0.5)  # Default is 0.5 if not provided
-
         # Setup the necessary variables (e.g., batch size, num_epochs, etc.)
         self.batch_size = self.config['training']['batch_size']
         self.num_epochs = self.config['training']['num_epochs']
@@ -111,23 +112,14 @@ class TrailsFlow(FlowSpec):
 
         wandb.init(project=self.config['logging']['project_name'], name=run_name)
 
-        # Track key parameters explicitly in WandB
-        wandb.config.update({
-            "data_directory": self.dataset_path,
-            "batch_size": self.config['training']['batch_size'],
-            "learning_rate": learning_rate,
-            "num_epochs": self.config['training']['num_epochs'],
-            "architecture": architecture,
-            "binarization_threshold": binarization_threshold  # Track the threshold in WandB
-        })
+        # Track the entire YAML config as a dictionary in WandB
+        wandb.config.update(self.config)  # Log the entire config
 
         # Build augmentations based on YAML config
         augmentations = build_augmentations(self.config)
 
-        # Initialize dataset and dataloaders using self.resolved_data_dir with the binarization threshold
-        dataset = TrailsDataset(data_dir=self.dataset_path,
-                                transform=augmentations,
-                                threshold=binarization_threshold)  # Pass the threshold here
+        # Initialize dataset and dataloaders using self.resolved_data_dir
+        dataset = SeismicLineDataset(data_dir=self.dataset_path, transform=augmentations)
         print(f"Total dataset length: {len(dataset)}")
 
         train_size = int(0.8 * len(dataset))
@@ -234,6 +226,8 @@ class TrailsFlow(FlowSpec):
         self.model = model
         self.learning_rate = learning_rate
 
+        self.model_architecture = model.config.to_dict()  # Save configuration as a dictionary
+
         self.next(self.train_model)
 
     @step
@@ -252,15 +246,7 @@ class TrailsFlow(FlowSpec):
                 f"batch{self.config['training']['batch_size']}"
             ).replace('/', '_')
             wandb.init(project=self.config['logging']['project_name'], name=run_name)
-
-            # Track key parameters explicitly in WandB
-            wandb.config.update({
-                "data_directory": self.dataset_path,
-                "batch_size": self.config['training']['batch_size'],
-                "learning_rate": self.learning_rate,
-                "num_epochs": self.config['training']['num_epochs'],
-                "architecture": self.architecture,
-            })
+            wandb.config.update(self.config)  # Log the entire config
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(device)
@@ -324,6 +310,21 @@ class TrailsFlow(FlowSpec):
             val_loss = 0.0
             self.model.eval()
 
+            # Log one random validation patch to WandB
+            random_batch = next(iter(self.val_loader))
+            val_images, val_masks = random_batch
+            val_images, val_masks = val_images.to(device), val_masks.squeeze(1).to(device)
+            with torch.no_grad():
+                val_outputs = self.model(pixel_values=val_images)
+                val_predicted = torch.sigmoid(val_outputs.logits).cpu().numpy()
+
+            # Log the input image, ground truth mask, and predicted mask
+            wandb.log({
+                "random_val_image": wandb.Image(val_images[0].cpu().numpy(), caption="Input Image"),
+                "random_val_mask": wandb.Image(val_masks[0].cpu().numpy(), caption="Ground Truth Mask"),
+                "random_val_prediction": wandb.Image(val_predicted[0], caption="Predicted Mask")
+            })
+
             with torch.no_grad():
                 for step, (val_images, val_masks) in enumerate(self.val_loader):
                     val_images, val_masks = val_images.to(device), val_masks.squeeze(1).to(device)
@@ -338,12 +339,14 @@ class TrailsFlow(FlowSpec):
                     val_loss += batch_val_loss
 
                     # Print validation loss for this step
-                    print(f"Validation Step {step + 1}/{len(self.val_loader)}, Batch Validation Loss: {batch_val_loss:.4f}")
+                    print(
+                        f"Validation Step {step + 1}/{len(self.val_loader)}, Batch Validation Loss: {batch_val_loss:.4f}")
 
             avg_val_loss = val_loss / len(self.val_loader)
 
             # Log the average losses for the epoch
-            print(f"Epoch {epoch + 1}/{self.num_epochs}, Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
+            print(
+                f"Epoch {epoch + 1}/{self.num_epochs}, Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
             wandb.log({
                 "epoch_train_loss": avg_train_loss,
                 "epoch_val_loss": avg_val_loss,
@@ -353,14 +356,46 @@ class TrailsFlow(FlowSpec):
             # Adjust learning rate using the scheduler
             scheduler.step(avg_val_loss)
 
-            # Save the best model
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
-                model_path = os.path.join(self.model_dir,
-                                          f'best_segformer_epoch_{epoch + 1}_val_loss_{avg_val_loss:.4f}.pth')
-                torch.save(self.model.state_dict(), model_path)
+                model_dir = os.path.join(self.model_dir,
+                                         f'best_segformer_epoch_{epoch + 1}_val_loss_{avg_val_loss:.4f}')
 
-                print(torch.cuda.memory_summary())
+                # Ensure the directory exists
+                if not os.path.exists(model_dir):
+                    os.makedirs(model_dir)
+
+                # Save the model's state_dict (PyTorch weights)
+                torch.save(self.model.state_dict(), os.path.join(model_dir, 'pytorch_model_weights.pth'))
+
+                # Save the Hugging Face model architecture and configuration, along with the weights
+                self.model.save_pretrained(model_dir)
+                print(f"Model and configuration saved in: {model_dir}")
+
+                # Save config and script alongside the model
+                shutil.copy(self.config_path, os.path.join(model_dir, f"segformer_epoch_{epoch + 1}_config.yaml"))
+                shutil.copy(__file__, os.path.join(model_dir, f"segformer_epoch_{epoch + 1}_training.py"))
+
+                # Save WandB run information
+                wandb_run_info = {
+                    "wandb_run_id": wandb.run.id,
+                    "wandb_run_name": wandb.run.name,
+                    "wandb_project": wandb.run.project,
+                    "wandb_url": wandb.run.url
+                }
+
+                with open(os.path.join(model_dir, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+                    yaml.dump(wandb_run_info, f)
+
+                # Save Metaflow flow information
+                metaflow_info = {
+                    "flow_id": current.flow_id,
+                    "run_id": current.run_id,
+                    "step_name": current.step_name,
+                    "task_id": current.task_id
+                }
+                with open(os.path.join(model_dir, f"metaflow_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
+                    yaml.dump(metaflow_info, f)
 
             # Early stopping
             early_stopping(avg_val_loss)
@@ -397,5 +432,6 @@ class TrailsFlow(FlowSpec):
         """
         print("Flow completed successfully.")
 
+
 if __name__ == "__main__":
-    TrailsFlow()
+    SeismicLineSegmentationFlow()
