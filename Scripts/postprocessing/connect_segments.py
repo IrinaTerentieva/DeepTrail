@@ -51,7 +51,7 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
 
     # Modify the cost map: Set very high cost for areas with zero probability
     cost_map = 100 - probability_map  # Convert probability to cost
-    cost_map = np.where(cost_map>90, cost_map*1.3, cost_map)
+    cost_map = np.where(cost_map > 90, cost_map * 1.3, cost_map)
     cost_map[probability_map < 1] = 200  # Assign very large cost to 0-probability areas
 
     # Debug: Plot the cost map
@@ -61,7 +61,7 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
     zero_prob_count = np.sum(probability_map == 0)
     high_cost_count = np.sum(cost_map == 200)
     print(f"Number of 0-probability areas: {zero_prob_count}")
-    print(f"Number of areas with high cost (1e6): {high_cost_count}")
+    print(f"Number of areas with high cost: {high_cost_count}")
 
     # Convert points to numpy array for efficient distance calculations
     all_coords = np.array([(p.x, p.y) for p in points])
@@ -69,6 +69,8 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
     # Use KDTree for efficient nearest-neighbor search
     tree = cKDTree(all_coords)
     closest_connections = []
+    median_costs = []  # To store median costs for each connection
+    lengths = []       # To store the length of each connection
 
     used_indices = set()  # Keep track of connected points
 
@@ -93,12 +95,14 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
             start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
             end_raster_idx = point_to_raster_indices(Point(all_coords[nearest_idx]), transform)
 
-            # Debug: Print cost values at the start and end points
-            print(f"Cost at start point (row: {start_raster_idx[0]}, col: {start_raster_idx[1]}): {cost_map[start_raster_idx[0], start_raster_idx[1]]}")
-            print(f"Cost at end point (row: {end_raster_idx[0]}, col: {end_raster_idx[1]}): {cost_map[end_raster_idx[0], end_raster_idx[1]]}")
-
             # Calculate the least cost path based on the probability map
             indices, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
+
+            # Extract the costs along the path
+            path_costs = [cost_map[row, col] for row, col in indices]
+
+            # Calculate the median cost for the path
+            median_cost = np.median(path_costs)
 
             # Convert raster indices back to geographic coordinates
             path_coords = [src.transform * (col, row) for row, col in indices]
@@ -106,11 +110,22 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
             # Only create LineString if there are at least two points
             if len(path_coords) > 1:
                 path_line = LineString(path_coords)
-                closest_connections.append(path_line)
+                # Calculate the length of the line
+                path_length = path_line.length
 
-    # Create GeoDataFrames for points and connections
+                # Store only if the median cost >= 10
+                if median_cost >= 10 and path_length < 15:
+                    closest_connections.append(path_line)
+                    median_costs.append(median_cost)
+                    lengths.append(path_length)
+
+    # Create GeoDataFrames for points and connections, including median cost and length as attributes
     points_gdf = gpd.GeoDataFrame(geometry=points, crs=gdf.crs)
-    connections_gdf = gpd.GeoDataFrame(geometry=closest_connections, crs=gdf.crs)
+    connections_gdf = gpd.GeoDataFrame({
+        'geometry': closest_connections,
+        'median_cost': median_costs,
+        'length': lengths
+    }, crs=gdf.crs)
 
     return connections_gdf
 
