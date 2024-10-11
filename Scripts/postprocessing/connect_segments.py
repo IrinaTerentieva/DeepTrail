@@ -43,8 +43,8 @@ def remove_duplicate_lines(gdf, tolerance=5):
     return simplified_gdf
 
 
-def visualize_and_simplify_lines(gdf, raster_path, plot_endpoints=True, plot_connections=True,
-                                 connection_threshold=None, buffer_size=10, tolerance=5):
+def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=True,
+                                 connection_threshold=None, max_connections=3, tolerance=5):
     # Load the raster (probability map)
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
@@ -103,37 +103,38 @@ def visualize_and_simplify_lines(gdf, raster_path, plot_endpoints=True, plot_con
         col, row = ~transform * (point.x, point.y)
         return int(row), int(col)
 
-    # Loop through each point to connect with all points in the 10-meter buffer
+    # Loop through each point to connect with a maximum of 3 closest points
     for i, point in enumerate(all_coords):
         if i in used_indices:
             continue
 
-        # Find all points within a 10-meter buffer
-        buffer_points = tree.query_ball_point(point, r=buffer_size)
+        # Find the 3 nearest points (excluding self)
+        distances, indices = tree.query(point, k=min(len(all_coords), max_connections + 1))  # +1 to exclude self
+        indices = indices[1:]  # Skip self (index 0 is the point itself)
 
         best_connection = None
-        best_median_cost = float('inf')  # Set to infinity to find the best (lowest) median cost
+        best_median_cost = float('inf')  # Initialize to infinity to find the best (lowest) median cost
 
-        # Try to connect to all points in the buffer
-        for nearest_idx in buffer_points:
-            if i == nearest_idx or line_ids[i] == line_ids[nearest_idx]:
-                continue  # Skip self and points from the same line
+        # Try to connect to the 3 closest points and choose the one with the lowest median cost
+        for nearest_idx in indices:
+            if line_ids[i] == line_ids[nearest_idx]:
+                continue  # Skip points from the same line
 
             # Convert points to raster indices
             start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
             end_raster_idx = point_to_raster_indices(Point(all_coords[nearest_idx]), transform)
 
             # Calculate the least cost path based on the probability map
-            indices, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
+            indices_path, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
 
             # Extract the costs along the path
-            path_costs = [cost_map[row, col] for row, col in indices]
+            path_costs = [cost_map[row, col] for row, col in indices_path]
 
             # Calculate the median cost for the path
             median_cost = np.median(path_costs)
 
             # Convert raster indices back to geographic coordinates
-            path_coords = [src.transform * (col, row) for row, col in indices]
+            path_coords = [src.transform * (col, row) for row, col in indices_path]
 
             # Only create LineString if there are at least two points
             if len(path_coords) > 1:
@@ -141,7 +142,7 @@ def visualize_and_simplify_lines(gdf, raster_path, plot_endpoints=True, plot_con
                 path_length = path_line.length
 
                 # Store the connection if the median cost is the best found so far
-                if median_cost < best_median_cost and path_length < 15:
+                if median_cost < best_median_cost:
                     best_connection = path_line
                     best_median_cost = median_cost
 
@@ -174,7 +175,7 @@ base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
 gdf = gpd.read_file(input_shapefile)
 
 # Filter out lines shorter than the threshold
-gdf = gdf[gdf.geometry.length >= 5]
+gdf = gdf[gdf.geometry.length >= 1]
 
 # Set the raster file path (probability map)
 raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
@@ -183,11 +184,10 @@ raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
 threshold_distance = 200.0
 
 # Call the function with visualization options and a connection threshold
-simplified_gdf = visualize_and_simplify_lines(gdf, raster_file, plot_endpoints=False, plot_connections=False,
+simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
                                               connection_threshold=threshold_distance)
 
 # Set the output path by adding "_connected" to the original filename
 output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected.gpkg'
 simplified_gdf.to_file(output_gpkg, driver='GPKG')
 print(f"Saved simplified output as GeoPackage to {output_gpkg}")
-
