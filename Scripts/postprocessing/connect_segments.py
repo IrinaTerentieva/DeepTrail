@@ -6,12 +6,14 @@ import numpy as np
 import rasterio
 from skimage.graph import route_through_array
 
+
 def plot_probability_map(probability_map):
     plt.figure(figsize=(10, 10))
     plt.imshow(probability_map, cmap='viridis')
     plt.colorbar(label='Probability')
     plt.title('Original Probability Map')
     plt.show()
+
 
 def plot_cost_map(cost_map):
     plt.figure(figsize=(10, 10))
@@ -20,7 +22,9 @@ def plot_cost_map(cost_map):
     plt.title('Cost Map')
     plt.show()
 
-def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True, plot_connections=True, connection_threshold=None):
+
+def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True, plot_connections=True,
+                                          connection_threshold=None, buffer_size=10):
     # Load the raster (probability map)
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
@@ -70,7 +74,7 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
     tree = cKDTree(all_coords)
     closest_connections = []
     median_costs = []  # To store median costs for each connection
-    lengths = []       # To store the length of each connection
+    lengths = []  # To store the length of each connection
 
     used_indices = set()  # Keep track of connected points
 
@@ -79,17 +83,21 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
         col, row = ~transform * (point.x, point.y)
         return int(row), int(col)
 
+    # Loop through each point to connect with all points in the 10-meter buffer
     for i, point in enumerate(all_coords):
         if i in used_indices:
             continue
-        distances, indices = tree.query(point, k=2)
-        nearest_idx = indices[1]  # Get the closest point index (skip self with index 0)
-        nearest_distance = distances[1]  # Get the distance to the closest point
 
-        # Check if the points belong to different lines and are within the threshold
-        if line_ids[i] != line_ids[nearest_idx] and (connection_threshold is None or nearest_distance <= connection_threshold):
-            used_indices.add(i)
-            used_indices.add(nearest_idx)
+        # Find all points within a 10-meter buffer
+        buffer_points = tree.query_ball_point(point, r=buffer_size)
+
+        best_connection = None
+        best_median_cost = float('inf')  # Set to infinity to find the best (lowest) median cost
+
+        # Try to connect to all points in the buffer
+        for nearest_idx in buffer_points:
+            if i == nearest_idx or line_ids[i] == line_ids[nearest_idx]:
+                continue  # Skip self and points from the same line
 
             # Convert points to raster indices
             start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
@@ -110,14 +118,18 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
             # Only create LineString if there are at least two points
             if len(path_coords) > 1:
                 path_line = LineString(path_coords)
-                # Calculate the length of the line
                 path_length = path_line.length
 
-                # Store only if the median cost >= 10
-                if median_cost >= 10 and path_length < 15:
-                    closest_connections.append(path_line)
-                    median_costs.append(median_cost)
-                    lengths.append(path_length)
+                # Store the connection if the median cost is the best found so far
+                if median_cost < best_median_cost and path_length < 15:
+                    best_connection = path_line
+                    best_median_cost = median_cost
+
+        # If a valid connection was found, store it
+        if best_connection is not None:
+            closest_connections.append(best_connection)
+            median_costs.append(best_median_cost)
+            lengths.append(best_connection.length)
 
     # Create GeoDataFrames for points and connections, including median cost and length as attributes
     points_gdf = gpd.GeoDataFrame(geometry=points, crs=gdf.crs)
@@ -128,6 +140,7 @@ def visualize_lines_with_least_cost_paths(gdf, raster_path, plot_endpoints=True,
     }, crs=gdf.crs)
 
     return connections_gdf
+
 
 # Load the shapefile
 input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
@@ -140,9 +153,10 @@ raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
 threshold_distance = 500.0
 
 # Call the function with visualization options and a connection threshold
-connections_gdf = visualize_lines_with_least_cost_paths(gdf, raster_file, plot_endpoints=True, plot_connections=True, connection_threshold=threshold_distance)
+connections_gdf = visualize_lines_with_least_cost_paths(gdf, raster_file, plot_endpoints=True, plot_connections=True,
+                                                        connection_threshold=threshold_distance)
 
 # Specify the output path for the GeoPackage
-output_gpkg = '/media/irro/All/HumanFootprint/DATA/intermediate/least_cost_connections.gpkg'
+output_gpkg = '/media/irro/All/HumanFootprint/DATA/intermediate/least_cost_connections2.gpkg'
 connections_gdf.to_file(output_gpkg, driver='GPKG')
 print(f"Saved output as GeoPackage to {output_gpkg}")
