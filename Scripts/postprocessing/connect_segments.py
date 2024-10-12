@@ -76,7 +76,7 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
     # Modify the cost map: Set very high cost for areas with zero probability
     cost_map = 100 - probability_map  # Convert probability to cost
     cost_map = np.where(cost_map > 50, cost_map * 1.5, cost_map)
-    cost_map[probability_map < 3] = 200  # Assign very large cost to 0-probability areas
+    cost_map[probability_map < 3] = 1000  # Assign very large cost to 0-probability areas
 
     # Debug: Plot the cost map
     plot_cost_map(cost_map)
@@ -131,7 +131,8 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
             path_costs = [cost_map[row, col] for row, col in indices_path]
 
             # Calculate the median cost for the path
-            median_cost = np.median(path_costs)
+            # median_cost = np.median(path_costs)
+            median_cost = np.mean(path_costs)
 
             # Convert raster indices back to geographic coordinates
             path_coords = [src.transform * (col, row) for row, col in indices_path]
@@ -188,6 +189,6 @@ simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_c
                                               connection_threshold=threshold_distance)
 
 # Set the output path by adding "_connected" to the original filename
-output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected.gpkg'
+output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected_mean.gpkg'
 simplified_gdf.to_file(output_gpkg, driver='GPKG')
 print(f"Saved simplified output as GeoPackage to {output_gpkg}")
