@@ -14,6 +14,7 @@ import shapely.geometry
 from PIL import Image
 from skimage import morphology, segmentation
 from affine import Affine
+from scipy.ndimage import label, center_of_mass
 
 # File paths
 input = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
@@ -95,8 +96,8 @@ def find_dense_skeleton_nodes(skel: np.ndarray) -> List[Tuple[int, int]]:
     eroded = morphology.binary_erosion(np.pad(skel, 1), np.ones((2, 2)))[1:-1, 1:-1]
 
     # Find the centers of mass of connected components
-    labeled_array, num_features = scipy.ndimage.measurements.label(eroded)
-    centers = scipy.ndimage.measurements.center_of_mass(eroded, labeled_array, [*range(1, num_features + 1)])
+    labeled_array, num_features = label(eroded)
+    centers = center_of_mass(eroded, labeled_array, [*range(1, num_features + 1)])
     return [(int(x), int(y)) for (x, y) in centers]
 
 
@@ -342,23 +343,45 @@ def network_to_geojson(g: nx.Graph, transform):
         'features': features
     }
 
-
 def save_network_as_shapefile(g, tif_path):
-    # Open the TIFF file to get its affine transform and CRS
-    with rasterio.open(tif_path) as src:
-        transform = src.transform
-        crs = src.crs
+    """
+    Save the network graph as a GeoPackage file, with length added as an attribute.
 
-    # Convert network to GeoJSON with transformed coordinates
-    network_geojson = network_to_geojson(g, transform)
+    Parameters:
+    - g: NetworkX graph object representing the network.
+    - tif_path: Path to the original TIFF file from which the network was extracted.
 
-    # Convert GeoJSON to GeoDataFrame
-    gdf = gpd.GeoDataFrame.from_features(network_geojson, crs=crs)
+    The function will create a 'connected_label' directory in the same directory as tif_path
+    and save the GeoPackage file there with the same base name as the TIFF file.
+    """
+    try:
+        # Open the TIFF file to get its affine transform and CRS
+        with rasterio.open(tif_path) as src:
+            transform = src.transform
+            crs = src.crs  # Ensure CRS is captured from the TIFF file
 
-    # Save to shapefile
-    shapefile_path = tif_path.replace('.tif', '.shp')
-    gdf.to_file(shapefile_path)
-    print(f'Network shapefile saved to {shapefile_path}')
+        # Convert network to GeoJSON with transformed coordinates
+        network_geojson = network_to_geojson(g, transform)
+
+        # Convert GeoJSON to GeoDataFrame with the correct CRS
+        gdf = gpd.GeoDataFrame.from_features(network_geojson, crs=crs)
+        gdf['length'] = gdf.geometry.length
+
+        # Create the 'connected_label' directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(tif_path), 'centerline')
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Construct the output file path for the GeoPackage
+        base_name = os.path.basename(tif_path).replace('.tif', '.gpkg')
+        geopkg_path = os.path.join(output_dir, base_name)
+
+        # Save to GeoPackage
+        gdf.to_file(geopkg_path, driver='GPKG')
+        print(f'Network GeoPackage saved to {geopkg_path}')
+
+    except Exception as e:
+        print(f"Error saving GeoPackage: {e}")
+        raise
 
 
 def extract_network_from_tif(tif_input, threshold=10):
@@ -413,35 +436,61 @@ def network_to_geojson_new(g: nx.Graph):
 
     return {'type': 'FeatureCollection', 'features': features}
 
-# Directory path
-dir_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+def process_tif_files(dir_path, init_threshold=20):
+    """
+    Process each '_label.tif' file in the specified directory and dynamically adjust threshold
+    to extract the network and save the results.
+    """
+    # List to store paths of '_label.tif' files
+    label_tif_files = []
 
-# List to store paths of '_label.tif' files
-label_tif_files = []
+    # Create output directory for connected_label files
+    connected_label_dir = os.path.join(dir_path, "connected_label")
+    os.makedirs(connected_label_dir, exist_ok=True)
 
-# Loop through the directory
-for root, dirs, files in os.walk(dir_path):
-    for file in files:
-        if file.endswith('_label.tif'):
-            label_tif_files.append(os.path.join(root, file))
+    # Loop through the directory to collect _label.tif files
+    for root, dirs, files in os.walk(dir_path):
+        for file in files:
+            if file.endswith('_label.tif'):
+                label_tif_files.append(os.path.join(root, file))
 
-# label_tif_files = [input]
-for tif_path in label_tif_files:
-    with rasterio.open(tif_path) as src:
-        print(tif_path)
-        transform = src.transform
-        crs = src.crs
-        print('Start')
+    # Process each file
+    for tif_path in label_tif_files:
+        print(f"Processing: {tif_path}")
+        threshold = init_threshold  # Ensure threshold is reset for each file
 
-        threshold = 20
-        skel, g = extract_network_from_tif(tif_path, threshold)
-        while len(g.edges) < 10:
-            print('Ooops')
-            threshold = threshold + 5
+        with rasterio.open(tif_path) as src:
+            transform = src.transform
+            crs = src.crs
+
+            print('Start processing')
+
+            # Extract network from tif file with the initial threshold
             skel, g = extract_network_from_tif(tif_path, threshold)
-            print('Thre: ', threshold)
 
-            if threshold > 40:
-                continue
+            # Dynamically adjust threshold if not enough edges are found
+            while len(g.edges) < 10:
+                print('Ooops, not enough edges found')
+                threshold += 5
+                skel, g = extract_network_from_tif(tif_path, threshold)
+                print(f'New Threshold: {threshold}')
 
-        save_network_as_shapefile(g, tif_path)
+                if threshold > 40:
+                    print(f'Skipping file {tif_path} due to insufficient edges at threshold {threshold}')
+                    break
+
+            # Save the results into the connected_label directory
+            if len(g.edges) >= 10:
+                save_network_as_shapefile(g, tif_path)
+            else:
+                print(f"Skipping file: {tif_path}, not enough edges found.")
+
+if __name__ == "__main__":
+    # Set the directory path and initial threshold
+    directory_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+    initial_threshold = 20
+
+    # Process the tif files in the directory
+    process_tif_files(directory_path, initial_threshold)
+
+
