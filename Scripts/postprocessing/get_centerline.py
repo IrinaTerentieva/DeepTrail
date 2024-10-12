@@ -413,15 +413,27 @@ def network_to_geojson_new(g: nx.Graph):
 
     return {'type': 'FeatureCollection', 'features': features}
 
-tif_files = [input]
-for tif_path in tif_files:
+# Directory path
+dir_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+
+# List to store paths of '_label.tif' files
+label_tif_files = []
+
+# Loop through the directory
+for root, dirs, files in os.walk(dir_path):
+    for file in files:
+        if file.endswith('_label.tif'):
+            label_tif_files.append(os.path.join(root, file))
+
+# label_tif_files = [input]
+for tif_path in label_tif_files:
     with rasterio.open(tif_path) as src:
         print(tif_path)
         transform = src.transform
         crs = src.crs
         print('Start')
 
-        threshold = 10
+        threshold = 20
         skel, g = extract_network_from_tif(tif_path, threshold)
         while len(g.edges) < 10:
             print('Ooops')
