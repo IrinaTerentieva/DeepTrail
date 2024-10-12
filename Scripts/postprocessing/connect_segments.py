@@ -10,185 +10,157 @@ import pandas as pd
 import os
 
 def plot_probability_map(probability_map):
+    """Plot the probability map."""
     plt.figure(figsize=(10, 10))
     plt.imshow(probability_map, cmap='viridis')
     plt.colorbar(label='Probability')
     plt.title('Original Probability Map')
     plt.show()
 
-
 def plot_cost_map(cost_map):
+    """Plot the cost map."""
     plt.figure(figsize=(10, 10))
     plt.imshow(cost_map, cmap='hot')
     plt.colorbar(label='Cost')
     plt.title('Cost Map')
     plt.show()
 
-
 def remove_duplicate_lines(gdf, tolerance=5):
     """
-    Simplifies the GeoDataFrame by removing lines that are very close to each other.
-    The tolerance defines the distance below which lines are considered duplicative.
+    Simplify the GeoDataFrame by removing nearby duplicate lines based on proximity.
+
+    Args:
+        gdf (GeoDataFrame): Input GeoDataFrame containing LineString geometries.
+        tolerance (int): Distance threshold for considering lines as duplicates.
+
+    Returns:
+        GeoDataFrame: Simplified GeoDataFrame without duplicate lines.
     """
-    # Spatially join lines that are within the tolerance
     gdf['buffer'] = gdf.geometry.buffer(tolerance)
     gdf['representative'] = gdf['buffer'].apply(lambda x: unary_union([x]))
-
-    # Drop duplicates based on spatial overlap (first occurrence is kept)
     simplified_gdf = gdf.drop_duplicates(subset='representative')
-
-    # Drop the helper columns
-    simplified_gdf = simplified_gdf.drop(columns=['buffer', 'representative'])
-
-    return simplified_gdf
-
+    return simplified_gdf.drop(columns=['buffer', 'representative'])
 
 def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=True,
-                                 connection_threshold=None, max_connections=3, tolerance=5):
-    # Load the raster (probability map)
+                     connection_threshold=200, max_connections=3, tolerance=5, high_cost_factor=1.5,
+                     low_prob_threshold=3):
+    """
+    Connect segments of lines in the GeoDataFrame based on the cost/probability raster.
+
+    Args:
+        gdf (GeoDataFrame): GeoDataFrame containing LineString geometries to be connected.
+        raster_path (str): Path to the raster probability map.
+        plot_endpoints (bool): Whether to plot start and end points of each segment.
+        plot_connections (bool): Whether to plot newly generated connections.
+        connection_threshold (float): Maximum distance threshold for connecting segments.
+        max_connections (int): Maximum number of closest points to consider for connection.
+        tolerance (int): Distance tolerance for removing duplicate lines.
+        high_cost_factor (float): Multiplier for increasing costs in high-cost areas.
+        low_prob_threshold (int): Probability threshold below which areas are considered very costly.
+
+    Returns:
+        GeoDataFrame: Simplified GeoDataFrame with connected line segments.
+    """
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
         transform = src.transform
 
-    # Debug: Plot the probability map
     plot_probability_map(probability_map)
 
-    # Create lists to store the points and line IDs
-    points = []
-    line_ids = []
+    points, line_ids = [], []
 
-    # Extract start and end points from each LineString and assign line IDs
     for idx, row in gdf.iterrows():
         line = row.geometry
         if line.is_empty or line.geom_type != 'LineString':
-            continue  # Skip if not LineString or empty
+            continue
+        start_point, end_point = Point(line.coords[0]), Point(line.coords[-1])
+        points.extend([start_point, end_point])
+        line_ids.extend([idx, idx])
 
-        # Extract start and end points
-        start_point = Point(line.coords[0])
-        end_point = Point(line.coords[-1])
-
-        # Append points to the list, assign the same line ID to both start and end points
-        points.append(start_point)
-        points.append(end_point)
-        line_ids.append(idx)  # Same line ID for both start and end points
-        line_ids.append(idx)  # Same line ID for both start and end points
-
-    # Modify the cost map: Set very high cost for areas with zero probability
-    cost_map = 100 - probability_map  # Convert probability to cost
-    cost_map = np.where(cost_map > 50, cost_map * 1.5, cost_map)
-    cost_map[probability_map < 3] = 1000  # Assign very large cost to 0-probability areas
-
-    # Debug: Plot the cost map
+    cost_map = 100 - probability_map
+    cost_map = np.where(cost_map > 50, cost_map * high_cost_factor, cost_map)
+    cost_map[probability_map < low_prob_threshold] = 1000
     plot_cost_map(cost_map)
 
-    # Check how many areas have high cost
-    zero_prob_count = np.sum(probability_map == 0)
-    high_cost_count = np.sum(cost_map == 200)
-    print(f"Number of 0-probability areas: {zero_prob_count}")
-    print(f"Number of areas with high cost: {high_cost_count}")
-
-    # Convert points to numpy array for efficient distance calculations
     all_coords = np.array([(p.x, p.y) for p in points])
-
-    # Use KDTree for efficient nearest-neighbor search
     tree = cKDTree(all_coords)
-    closest_connections = []
-    median_costs = []  # To store median costs for each connection
-    lengths = []  # To store the length of each connection
+    closest_connections, median_costs, step_costs, lengths = [], [], [], []
+    used_indices = set()
 
-    used_indices = set()  # Keep track of connected points
-
-    # Helper function to convert geographic coordinates to raster indices
     def point_to_raster_indices(point, transform):
         col, row = ~transform * (point.x, point.y)
         return int(row), int(col)
 
-    # Loop through each point to connect with a maximum of 3 closest points
     for i, point in enumerate(all_coords):
         if i in used_indices:
             continue
 
-        # Find the 3 nearest points (excluding self)
-        distances, indices = tree.query(point, k=min(len(all_coords), max_connections + 1))  # +1 to exclude self
-        indices = indices[1:]  # Skip self (index 0 is the point itself)
+        distances, indices = tree.query(point, k=min(len(all_coords), max_connections + 1))
+        indices = indices[1:]
 
-        best_connection = None
-        best_median_cost = float('inf')  # Initialize to infinity to find the best (lowest) median cost
+        best_connection, best_median_cost, best_step_cost = None, float('inf'), float('inf')
 
-        # Try to connect to the 3 closest points and choose the one with the lowest median cost
         for nearest_idx in indices:
             if line_ids[i] == line_ids[nearest_idx]:
-                continue  # Skip points from the same line
-
-            # Convert points to raster indices
+                continue
             start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
             end_raster_idx = point_to_raster_indices(Point(all_coords[nearest_idx]), transform)
 
-            # Calculate the least cost path based on the probability map
             indices_path, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
-
-            # Extract the costs along the path
             path_costs = [cost_map[row, col] for row, col in indices_path]
 
-            # Calculate the median cost for the path
-            # median_cost = np.median(path_costs)
-            median_cost = np.mean(path_costs)
-
-            # Convert raster indices back to geographic coordinates
+            median_cost = np.median(path_costs)
+            step_cost = np.mean(path_costs)
             path_coords = [src.transform * (col, row) for row, col in indices_path]
 
-            # Only create LineString if there are at least two points
             if len(path_coords) > 1:
                 path_line = LineString(path_coords)
                 path_length = path_line.length
 
-                # Store the connection if the median cost is the best found so far
                 if median_cost < best_median_cost:
                     best_connection = path_line
                     best_median_cost = median_cost
+                    best_step_cost = step_cost
 
-        # If a valid connection was found, store it
         if best_connection is not None:
             closest_connections.append(best_connection)
             median_costs.append(best_median_cost)
+            step_costs.append(best_step_cost)
             lengths.append(best_connection.length)
 
-    # Create GeoDataFrame for the newly generated connections
     connections_gdf = gpd.GeoDataFrame({
         'geometry': closest_connections,
         'median_cost': median_costs,
+        'step_cost': step_costs,
         'length': lengths
     }, crs=gdf.crs)
 
-    # Combine with original GeoDataFrame
     combined_gdf = pd.concat([gdf, connections_gdf], ignore_index=True)
-
-    # Simplify the combined GeoDataFrame by removing duplicate lines based on proximity
     simplified_gdf = remove_duplicate_lines(combined_gdf, tolerance=tolerance)
 
     return simplified_gdf
 
-
 # Load the shapefile
 input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
+# input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label_connected_200.0_cost_mean.gpkg'
+
 base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
 
 gdf = gpd.read_file(input_shapefile)
 
-# Filter out lines shorter than the threshold
+# Filter out lines shorter than a certain length
 gdf = gdf[gdf.geometry.length >= 1]
 
-# Set the raster file path (probability map)
+# Set raster file path and parameters
 raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
-
-# Set threshold distance for connecting points (e.g., 100 meters)
 threshold_distance = 200.0
 
-# Call the function with visualization options and a connection threshold
+# Call function with parameters for flexibility
 simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
-                                              connection_threshold=threshold_distance)
+                                  connection_threshold=threshold_distance, high_cost_factor=1.5,
+                                  low_prob_threshold=3)
 
-# Set the output path by adding "_connected" to the original filename
-output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected_mean.gpkg'
+# Set output path including relevant parameters for identification
+output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected_{threshold_distance}_cost_mean.gpkg'
 simplified_gdf.to_file(output_gpkg, driver='GPKG')
 print(f"Saved simplified output as GeoPackage to {output_gpkg}")
