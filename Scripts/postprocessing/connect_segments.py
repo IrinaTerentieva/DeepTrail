@@ -141,12 +141,14 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
     return simplified_gdf
 
 # Load the shapefile
-input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
-# input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label_connected_200.0_cost_mean.gpkg'
+# input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
+input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label_connected_200.0_cost_mean.gpkg'
 
 base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
 
 gdf = gpd.read_file(input_shapefile)
+gdf = gdf.to_crs(epsg=2956)
+gdf['length'] = gdf.geometry.length
 
 # Filter out lines shorter than a certain length
 gdf = gdf[gdf.geometry.length >= 1]
