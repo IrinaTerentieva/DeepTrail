@@ -10,7 +10,6 @@ import pandas as pd
 import os
 
 def plot_probability_map(probability_map):
-    """Plot the probability map."""
     plt.figure(figsize=(10, 10))
     plt.imshow(probability_map, cmap='viridis')
     plt.colorbar(label='Probability')
@@ -18,7 +17,6 @@ def plot_probability_map(probability_map):
     plt.show()
 
 def plot_cost_map(cost_map):
-    """Plot the cost map."""
     plt.figure(figsize=(10, 10))
     plt.imshow(cost_map, cmap='hot')
     plt.colorbar(label='Cost')
@@ -26,16 +24,6 @@ def plot_cost_map(cost_map):
     plt.show()
 
 def remove_duplicate_lines(gdf, tolerance=5):
-    """
-    Simplify the GeoDataFrame by removing nearby duplicate lines based on proximity.
-
-    Args:
-        gdf (GeoDataFrame): Input GeoDataFrame containing LineString geometries.
-        tolerance (int): Distance threshold for considering lines as duplicates.
-
-    Returns:
-        GeoDataFrame: Simplified GeoDataFrame without duplicate lines.
-    """
     gdf['buffer'] = gdf.geometry.buffer(tolerance)
     gdf['representative'] = gdf['buffer'].apply(lambda x: unary_union([x]))
     simplified_gdf = gdf.drop_duplicates(subset='representative')
@@ -44,28 +32,9 @@ def remove_duplicate_lines(gdf, tolerance=5):
 def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=True,
                      connection_threshold=200, max_connections=3, tolerance=5, high_cost_factor=1.5,
                      low_prob_threshold=3):
-    """
-    Connect segments of lines in the GeoDataFrame based on the cost/probability raster.
-
-    Args:
-        gdf (GeoDataFrame): GeoDataFrame containing LineString geometries to be connected.
-        raster_path (str): Path to the raster probability map.
-        plot_endpoints (bool): Whether to plot start and end points of each segment.
-        plot_connections (bool): Whether to plot newly generated connections.
-        connection_threshold (float): Maximum distance threshold for connecting segments.
-        max_connections (int): Maximum number of closest points to consider for connection.
-        tolerance (int): Distance tolerance for removing duplicate lines.
-        high_cost_factor (float): Multiplier for increasing costs in high-cost areas.
-        low_prob_threshold (int): Probability threshold below which areas are considered very costly.
-
-    Returns:
-        GeoDataFrame: Simplified GeoDataFrame with connected line segments.
-    """
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
         transform = src.transform
-
-    plot_probability_map(probability_map)
 
     points, line_ids = [], []
 
@@ -80,7 +49,6 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
     cost_map = 100 - probability_map
     cost_map = np.where(cost_map > 50, cost_map * high_cost_factor, cost_map)
     cost_map[probability_map < low_prob_threshold] = 1000
-    plot_cost_map(cost_map)
 
     all_coords = np.array([(p.x, p.y) for p in points])
     tree = cKDTree(all_coords)
@@ -115,7 +83,6 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
 
             if len(path_coords) > 1:
                 path_line = LineString(path_coords)
-                path_length = path_line.length
 
                 if median_cost < best_median_cost:
                     best_connection = path_line
@@ -140,29 +107,48 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
 
     return simplified_gdf
 
-# Load the shapefile
-# input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.shp'
-input_shapefile = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label_connected_200.0_cost_mean.gpkg'
+def process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200):
+    # Ensure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
 
-base_name = os.path.splitext(os.path.basename(input_shapefile))[0]
+    for centerline_file in os.listdir(centerline_folder):
+        if centerline_file.endswith('.gpkg'):
+            base_name = os.path.splitext(centerline_file)[0]
+            raster_file = os.path.join(raster_folder, f"{base_name}.tif")
+            centerline_path = os.path.join(centerline_folder, centerline_file)
 
-gdf = gpd.read_file(input_shapefile)
-gdf = gdf.to_crs(epsg=2956)
-gdf['length'] = gdf.geometry.length
+            if os.path.exists(raster_file):
+                print(f"Processing: {centerline_path} with {raster_file}")
 
-# Filter out lines shorter than a certain length
-gdf = gdf[gdf.geometry.length >= 1]
+                # Load centerline GeoPackage
+                gdf = gpd.read_file(centerline_path)
+                gdf['length'] = gdf.geometry.length
 
-# Set raster file path and parameters
-raster_file = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
-threshold_distance = 200.0
+                # Filter out lines shorter than a certain length
+                gdf = gdf[gdf.geometry.length >= 1]
 
-# Call function with parameters for flexibility
-simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
-                                  connection_threshold=threshold_distance, high_cost_factor=1.5,
-                                  low_prob_threshold=3)
+                # Connect the segments using the probability raster
+                simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
+                                                  connection_threshold=threshold_distance, high_cost_factor=1.5,
+                                                  low_prob_threshold=3)
 
-# Set output path including relevant parameters for identification
-output_gpkg = f'/media/irro/All/HumanFootprint/DATA/intermediate/{base_name}_connected_{threshold_distance}_cost_mean.gpkg'
-simplified_gdf.to_file(output_gpkg, driver='GPKG')
-print(f"Saved simplified output as GeoPackage to {output_gpkg}")
+                # Filter out lines shorter than a certain length
+                simplified_gdf = simplified_gdf[simplified_gdf.geometry.length >= 1]
+
+                # Save the connected output as GeoPackage
+                output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
+                simplified_gdf.to_file(output_gpkg, driver='GPKG')
+                print(f"Saved simplified output as GeoPackage to {output_gpkg}")
+            else:
+                print(f"Raster file not found for {centerline_file}")
+
+def main():
+    # Paths for the input centerline files, corresponding rasters, and output directory
+    centerline_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/centerline'
+    raster_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+    output_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
+
+    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200)
+
+if __name__ == "__main__":
+    main()
