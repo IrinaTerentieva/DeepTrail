@@ -8,6 +8,7 @@ from skimage.graph import route_through_array
 from shapely.ops import unary_union
 import pandas as pd
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def plot_probability_map(probability_map):
     plt.figure(figsize=(10, 10))
@@ -107,40 +108,56 @@ def connect_segments(gdf, raster_path, plot_endpoints=True, plot_connections=Tru
 
     return simplified_gdf
 
-def process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200):
+def process_file(centerline_file, centerline_folder, raster_folder, output_folder, threshold_distance):
+    base_name = os.path.splitext(centerline_file)[0]
+    raster_file = os.path.join(raster_folder, f"{base_name}.tif")
+    centerline_path = os.path.join(centerline_folder, centerline_file)
+
+    if os.path.exists(raster_file):
+        print(f"Processing: {centerline_path} with {raster_file}")
+
+        # Load centerline GeoPackage
+        gdf = gpd.read_file(centerline_path)
+        gdf['length'] = gdf.geometry.length
+
+        # Filter out lines shorter than a certain length
+        gdf = gdf[gdf.geometry.length >= 1]
+
+        # Connect the segments using the probability raster
+        simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
+                                          connection_threshold=threshold_distance, high_cost_factor=1.5,
+                                          low_prob_threshold=3)
+
+        # Filter out lines shorter than a certain length
+        simplified_gdf = simplified_gdf[simplified_gdf.geometry.length >= 1]
+
+        # Save the connected output as GeoPackage
+        output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
+        simplified_gdf.to_file(output_gpkg, driver='GPKG')
+        print(f"Saved simplified output as GeoPackage to {output_gpkg}")
+    else:
+        print(f"Raster file not found for {centerline_file}")
+
+def process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=4):
     # Ensure the output folder exists
     os.makedirs(output_folder, exist_ok=True)
 
-    for centerline_file in os.listdir(centerline_folder):
-        if centerline_file.endswith('.gpkg'):
-            base_name = os.path.splitext(centerline_file)[0]
-            raster_file = os.path.join(raster_folder, f"{base_name}.tif")
-            centerline_path = os.path.join(centerline_folder, centerline_file)
+    # List of centerline files
+    centerline_files = [f for f in os.listdir(centerline_folder) if f.endswith('.gpkg')]
 
-            if os.path.exists(raster_file):
-                print(f"Processing: {centerline_path} with {raster_file}")
+    # Use ThreadPoolExecutor to process files in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(process_file, centerline_file, centerline_folder, raster_folder, output_folder, threshold_distance)
+            for centerline_file in centerline_files
+        ]
 
-                # Load centerline GeoPackage
-                gdf = gpd.read_file(centerline_path)
-                gdf['length'] = gdf.geometry.length
-
-                # Filter out lines shorter than a certain length
-                gdf = gdf[gdf.geometry.length >= 1]
-
-                # Connect the segments using the probability raster
-                simplified_gdf = connect_segments(gdf, raster_file, plot_endpoints=False, plot_connections=False,
-                                                  connection_threshold=threshold_distance, high_cost_factor=1.5,
-                                                  low_prob_threshold=3)
-
-                # Filter out lines shorter than a certain length
-                simplified_gdf = simplified_gdf[simplified_gdf.geometry.length >= 1]
-
-                # Save the connected output as GeoPackage
-                output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
-                simplified_gdf.to_file(output_gpkg, driver='GPKG')
-                print(f"Saved simplified output as GeoPackage to {output_gpkg}")
-            else:
-                print(f"Raster file not found for {centerline_file}")
+        # Wait for all futures to complete
+        for future in as_completed(futures):
+            try:
+                future.result()  # Raises any exception encountered during processing
+            except Exception as exc:
+                print(f"Generated an exception: {exc}")
 
 def main():
     # Paths for the input centerline files, corresponding rasters, and output directory
@@ -148,7 +165,8 @@ def main():
     raster_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
     output_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
 
-    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200)
+    # Process files in parallel with 4 workers
+    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=4)
 
 if __name__ == "__main__":
     main()
