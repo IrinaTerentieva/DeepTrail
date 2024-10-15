@@ -15,14 +15,9 @@ SHORT_TRAIL_THRESHOLD = 50  # Example threshold for short trails
 MEDIUM_TRAIL_THRESHOLD = 150  # Example threshold for medium trails
 
 
-def classify_trail_length(length):
-    """Classify trail length into 'short', 'medium', or 'long'."""
-    if length < SHORT_TRAIL_THRESHOLD:
-        return 'short_trail'
-    elif length < MEDIUM_TRAIL_THRESHOLD:
-        return 'medium_trail'
-    else:
-        return 'long_trail'
+def classify_trail_length(length, length_median = 10):
+    """Classify trail length into 'short' or 'long' based on median length."""
+    return 'long_trail' if length >= length_median else 'short_trail'
 
 def connect_segments(gdf, raster_path, connection_threshold=200, max_connections=3, tolerance=5, high_cost_factor=1.5,
                      low_prob_threshold=3):
@@ -36,6 +31,10 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     points, line_ids = [], []
     line_probabilities = []
     line_classifications = []
+
+    # Calculate median length for classification
+    threshold_length = np.percentile(gdf['length'], 75)
+    print('Threshold trail length: ', threshold_length)
 
     for idx, row in gdf.iterrows():
         line = row.geometry
@@ -66,7 +65,7 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
         line_probabilities.append(line_prob)
 
         # Classify the line
-        classification = classify_trail_length(row['length'])
+        classification = classify_trail_length(row['length'], threshold_length)
         line_classifications.append(classification)
 
     # Use a cost map based on probability
@@ -76,7 +75,7 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
 
     all_coords = np.array([(p.x, p.y) for p in points])
     tree = cKDTree(all_coords)
-    closest_connections, median_costs, step_costs, lengths = [], [], [], []
+    closest_connections, median_costs, step_costs, lengths, connection_types = [], [], [], [], []
     used_indices = set()
 
     def point_to_raster_indices(point, transform):
@@ -84,32 +83,39 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
         return int(row), int(col)
 
     # PRIORITIZE long_trails FIRST
-    long_trail_indices = [i for i, length in enumerate(gdf['length']) if classify_trail_length(length) == 'long_trail']
+    long_trail_indices = [i for i, length in enumerate(gdf['length']) if classify_trail_length(length, threshold_length) == 'long_trail']
 
     def process_trails(indices, connection_threshold, max_connections):
         for i in indices:
-            if i in used_indices:
-                continue
+            # Allow a maximum of 3 connections if the point belongs to a long trail
+            current_max_connections = max_connections
+            if classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length) == 'long_trail':
+                current_max_connections = 3
 
-            distances, nearest_indices = tree.query(all_coords[i], k=min(len(all_coords), max_connections + 1))
+            distances, nearest_indices = tree.query(all_coords[i], k=min(len(all_coords), current_max_connections + 1))
             nearest_indices = nearest_indices[1:]  # Skip itself
 
             best_connection, best_median_cost, best_step_cost = None, float('inf'), float('inf')
+            connection_type = 'unknown'
 
             for nearest_idx in nearest_indices:
+                # Skip if trying to connect to the same line
                 if line_ids[i] == line_ids[nearest_idx]:
                     continue
+
                 try:
                     start_raster_idx = point_to_raster_indices(Point(all_coords[i]), transform)
                     end_raster_idx = point_to_raster_indices(Point(all_coords[nearest_idx]), transform)
 
                     # Skip if indices are invalid (e.g., out of bounds)
-                    if not (0 <= start_raster_idx[0] < cost_map.shape[0] and 0 <= start_raster_idx[1] < cost_map.shape[1]):
+                    if not (0 <= start_raster_idx[0] < cost_map.shape[0] and 0 <= start_raster_idx[1] < cost_map.shape[
+                        1]):
                         continue
                     if not (0 <= end_raster_idx[0] < cost_map.shape[0] and 0 <= end_raster_idx[1] < cost_map.shape[1]):
                         continue
 
-                    indices_path, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx, fully_connected=True)
+                    indices_path, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx,
+                                                          fully_connected=True)
                     path_costs = [cost_map[row, col] for row, col in indices_path]
 
                     median_cost = np.median(path_costs)
@@ -123,16 +129,28 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
                             best_connection = path_line
                             best_median_cost = median_cost
                             best_step_cost = step_cost
+
+                            # Determine connection type
+                            classification_1 = classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length)
+                            classification_2 = classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'],
+                                                                     threshold_length)
+                            if classification_1 == 'long_trail' and classification_2 == 'long_trail':
+                                connection_type = 'long-long'
+                            elif classification_1 == 'short_trail' and classification_2 == 'short_trail':
+                                connection_type = 'short-short'
+                            else:
+                                connection_type = 'short-long'
                 except ValueError as e:
                     print(f"Error while processing connection: {e}")
                     continue
 
             if best_connection is not None:
-                print(f"Adding connection between points {i} and {nearest_indices[0]} with median cost {best_median_cost}")
+                # Record the connection
                 closest_connections.append(best_connection)
                 median_costs.append(best_median_cost)
                 step_costs.append(best_step_cost)
                 lengths.append(best_connection.length)
+                connection_types.append(connection_type)
 
     print('Process long trails')
     # First, connect long trails with higher priority
@@ -140,14 +158,15 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
 
     print('Process short trails')
     # Connect the remaining trails
-    process_trails(range(len(all_coords)), connection_threshold=200, max_connections=3)
+    process_trails(range(len(all_coords)), connection_threshold=100, max_connections=3)
 
     # Create a GeoDataFrame for the connected lines
     connections_gdf = gpd.GeoDataFrame({
         'geometry': closest_connections,
         'median_cost': median_costs,
         'step_cost': step_costs,
-        'length': lengths
+        'length': lengths,
+        'connection_type': connection_types
     }, crs=gdf.crs)
 
     print(f'Merging connections of gdf of {len(gdf)} length and connections_gdf of {len(connections_gdf)} length')
@@ -155,13 +174,14 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     print('connections_gdf: ', connections_gdf.head())
 
     # Combine the original and newly created connections
+    gdf['connection_type'] = 'trail'
     combined_gdf = pd.concat([gdf, connections_gdf], ignore_index=True)
     print('Merged')
 
     # Extend the lists for new connections
     num_new_connections = len(connections_gdf)
     line_probabilities.extend([np.nan] * num_new_connections)
-    line_classifications.extend(['unknown'] * num_new_connections)
+    line_classifications.extend(['trail'] * num_new_connections)
 
     # Use the provided 'length' for the line length
     if 'length' in combined_gdf.columns:
@@ -172,8 +192,24 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     combined_gdf['avg_probability'] = line_probabilities
     combined_gdf['classification'] = line_classifications
 
-    return combined_gdf
+    # Create a GeoDataFrame for the points with classifications
+    point_classifications = [
+        classify_trail_length(combined_gdf.loc[line_id, 'line_length'], threshold_length)
+        for line_id in line_ids
+    ]
 
+    points_gdf = gpd.GeoDataFrame({
+        'geometry': points,
+        'line_id': line_ids,
+        'classification': point_classifications
+    }, crs=gdf.crs)
+
+    # # Save points with classifications
+    # points_output_path = os.path.join(os.path.dirname(raster_path), 'endpoints.gpkg')
+    # points_gdf.to_file(points_output_path, driver='GPKG')
+    # print(f"Saved points with classifications to {points_output_path}")
+
+    return combined_gdf
 
 def process_file(centerline_file, centerline_folder, raster_folder, output_folder, threshold_distance):
     base_name = os.path.splitext(centerline_file)[0]
@@ -185,12 +221,8 @@ def process_file(centerline_file, centerline_folder, raster_folder, output_folde
 
         # Load centerline GeoPackage
         gdf = gpd.read_file(centerline_path)
-        # gdf['length'] = gdf.geometry.length
 
-        # Filter out lines shorter than a certain length
-        # gdf = gdf[gdf.geometry.length >= 1]
         print('Starting connect_segment')
-        # Connect the segments using the probability raster
         simplified_gdf = connect_segments(gdf, raster_file, connection_threshold=threshold_distance, high_cost_factor=1.5,
                                                      low_prob_threshold=3)
         print('Filtering out short lines')
@@ -199,7 +231,7 @@ def process_file(centerline_file, centerline_folder, raster_folder, output_folde
 
         print('Saving connections')
         # Save the connected output as GeoPackage
-        output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
+        output_gpkg = os.path.join(output_folder, f"{base_name}_connect.gpkg")
         simplified_gdf.to_file(output_gpkg, driver='GPKG')
         print(f"Saved simplified output as GeoPackage to {output_gpkg}")
     else:
