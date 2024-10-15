@@ -49,16 +49,18 @@ training:
 
 # Prediction Parameters
 prediction_params:
+  inverted: True
 #  model_path: Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5
 #  model_path: Models/checkpoints/UNet-patch1024-lr0.0001-epoch12-val_loss0.42.weights.h5       ### TOO many trails: playful-plasma-8
 #  model_path: Models/Weights/10cm/Human_DTM_512_byCNN_9ep.h5
-  model_path: Models/Weights/50cm/Trails_Tracks_DTM50cm_256px.h5 # works well with 512 patch size; same as Human_DTM50cm_256_byCNN_8ep
+  model_path: Models/Weights/Trails_Tracks_DTM50cm_512px.h5 # works well with 512 patch size; same as Human_DTM50cm_256_byCNN_8ep
   output_dir: DATA/Test_Models
   overlap_size: 256
   patch_size: 512
 #  test_image_path: DATA/DTM/Drone/PFT_KirbySouth_July2022_DTM.tif
 #  test_image_path: DATA/DTM/Airborne/Kirby_10cm_normDTM6m_fen.tif
-  test_image_path: DATA/Test_Models/LiDeaII_50cm_normDTM_test_inverted.tif
+  test_image_path: DATA/Test_Models/LiDeaII_50cm_normDTM_bigtest.tif
+#  test_image_path: DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif
 
 # Preprocessing Parameters
 preprocessing:

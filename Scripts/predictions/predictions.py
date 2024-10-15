@@ -67,6 +67,7 @@ class UNetPredictionFlow(FlowSpec):
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
         self.overlap_size = self.config['prediction_params']['overlap_size']
+        self.invert_image = self.config['prediction_params']['inverted']
 
         print(f"\n******\nModel Path: {self.model_path}")
         print(f"Input Image Path: {self.input_image_path}")
@@ -109,6 +110,10 @@ class UNetPredictionFlow(FlowSpec):
         This includes resizing and normalization.
         """
         # Normalize the image patch as done in the data generator
+        self.invert_image = True
+        if self.invert_image:
+            patch = -patch
+            self.print_verbose("Image values inverted.")
         patch = normalize_image(patch)
         patch = patch.reshape(1, patch.shape[0], patch.shape[1], patch.shape[2])
 
