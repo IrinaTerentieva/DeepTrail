@@ -9,20 +9,59 @@ from shapely.ops import unary_union
 import pandas as pd
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from shapely.ops import linemerge, unary_union
 
-# Classification thresholds for trail length
-SHORT_TRAIL_THRESHOLD = 50  # Example threshold for short trails
-MEDIUM_TRAIL_THRESHOLD = 150  # Example threshold for medium trails
+from shapely.ops import linemerge, unary_union
+
+
+def merge_connected_lines(gdf):
+    """
+    Merge all intersecting or connected lines from the original GeoDataFrame into single entities.
+    Accumulate their lengths as well.
+
+    Args:
+        gdf (GeoDataFrame): Original GeoDataFrame containing LineString geometries.
+
+    Returns:
+        GeoDataFrame: GeoDataFrame with merged LineString geometries and updated lengths.
+    """
+    # Merge all connected lines into multi-lines
+    merged_lines = unary_union(gdf.geometry)
+
+    # Handle different resulting types after merging
+    merged_geometries = []
+    merged_lengths = []
+
+    if merged_lines.geom_type == 'LineString':
+        # If the result is a single LineString
+        merged_geometries.append(merged_lines)
+        merged_lengths.append(merged_lines.length)
+    elif merged_lines.geom_type == 'MultiLineString':
+        # If the result is multiple LineStrings (e.g., MultiLineString)
+        for line in merged_lines.geoms:  # Access individual LineStrings in MultiLineString
+            merged_geometries.append(line)
+            merged_lengths.append(line.length)
+    else:
+        raise ValueError(f"Unexpected geometry type: {merged_lines.geom_type}")
+
+    # Create the GeoDataFrame for the merged geometries
+    merged_gdf = gpd.GeoDataFrame({'geometry': merged_geometries, 'length': merged_lengths}, crs=gdf.crs)
+
+    return merged_gdf
 
 
 def classify_trail_length(length, length_median = 10):
     """Classify trail length into 'short' or 'long' based on median length."""
     return 'long_trail' if length >= length_median else 'short_trail'
 
-def connect_segments(gdf, raster_path, connection_threshold=200, max_connections=3, tolerance=5, high_cost_factor=1.5,
-                     low_prob_threshold=3):
+def connect_segments(
+    gdf, raster_path, connection_threshold=200, tolerance=5, high_cost_factor=1.5,
+    low_prob_threshold=3, long_trail_check_points=20, long_trail_max_connections=5,
+    short_trail_check_points=5, short_trail_max_connections=1
+):
 
-    print("Starting connect_segments")
+    gdf = merge_connected_lines(gdf)
+    print('Initial lines connected')
 
     with rasterio.open(raster_path) as src:
         probability_map = src.read(1)
@@ -33,7 +72,7 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     line_classifications = []
 
     # Calculate median length for classification
-    threshold_length = np.percentile(gdf['length'], 75)
+    threshold_length = np.percentile(gdf['length'], 70)
     print('Threshold trail length: ', threshold_length)
 
     for idx, row in gdf.iterrows():
@@ -76,7 +115,6 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     all_coords = np.array([(p.x, p.y) for p in points])
     tree = cKDTree(all_coords)
     closest_connections, median_costs, step_costs, lengths, connection_types = [], [], [], [], []
-    used_indices = set()
 
     def point_to_raster_indices(point, transform):
         col, row = ~transform * (point.x, point.y)
@@ -85,20 +123,25 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     # PRIORITIZE long_trails FIRST
     long_trail_indices = [i for i, length in enumerate(gdf['length']) if classify_trail_length(length, threshold_length) == 'long_trail']
 
-    def process_trails(indices, connection_threshold, max_connections):
+    def process_trails(indices, check_points, max_connections, prioritize_long_trail=True):
         for i in indices:
-            # Allow a maximum of 3 connections if the point belongs to a long trail
-            current_max_connections = max_connections
-            if classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length) == 'long_trail':
-                current_max_connections = 3
-
-            distances, nearest_indices = tree.query(all_coords[i], k=min(len(all_coords), current_max_connections + 1))
+            distances, nearest_indices = tree.query(all_coords[i], k=min(len(all_coords), check_points + 1))
             nearest_indices = nearest_indices[1:]  # Skip itself
 
-            best_connection, best_median_cost, best_step_cost = None, float('inf'), float('inf')
-            connection_type = 'unknown'
+            connections = 0
+            # Try to connect to other long-trail points first if prioritize_long_trail is True
+            if prioritize_long_trail and classify_trail_length(gdf.loc[line_ids[i], 'length'],
+                                                               threshold_length) == 'long_trail':
+                long_trail_nearest_indices = [
+                    idx for idx in nearest_indices
+                    if classify_trail_length(gdf.loc[line_ids[idx], 'length'], threshold_length) == 'long_trail'
+                ]
+                # If there are any long-trail candidates, try to connect them first
+                nearest_indices = long_trail_nearest_indices if long_trail_nearest_indices else nearest_indices
 
             for nearest_idx in nearest_indices:
+                if connections >= max_connections:
+                    break
                 # Skip if trying to connect to the same line
                 if line_ids[i] == line_ids[nearest_idx]:
                     continue
@@ -116,8 +159,8 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
 
                     indices_path, _ = route_through_array(cost_map, start_raster_idx, end_raster_idx,
                                                           fully_connected=True)
-                    path_costs = [cost_map[row, col] for row, col in indices_path]
 
+                    path_costs = [cost_map[row, col] for row, col in indices_path]
                     median_cost = np.median(path_costs)
                     step_cost = np.mean(path_costs)
                     path_coords = [transform * (col, row) for row, col in indices_path]
@@ -125,40 +168,34 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
                     if len(path_coords) > 1:
                         path_line = LineString(path_coords)
 
-                        if median_cost < best_median_cost:
-                            best_connection = path_line
-                            best_median_cost = median_cost
-                            best_step_cost = step_cost
+                        closest_connections.append(path_line)
+                        median_costs.append(median_cost)
+                        step_costs.append(step_cost)
+                        lengths.append(path_line.length)
 
-                            # Determine connection type
-                            classification_1 = classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length)
-                            classification_2 = classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'],
-                                                                     threshold_length)
-                            if classification_1 == 'long_trail' and classification_2 == 'long_trail':
-                                connection_type = 'long-long'
-                            elif classification_1 == 'short_trail' and classification_2 == 'short_trail':
-                                connection_type = 'short-short'
-                            else:
-                                connection_type = 'short-long'
+                        # Determine connection type
+                        classification_1 = classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length)
+                        classification_2 = classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'],
+                                                                 threshold_length)
+                        if classification_1 == 'long_trail' and classification_2 == 'long_trail':
+                            connection_types.append('long-long')
+                        elif classification_1 == 'short_trail' and classification_2 == 'short_trail':
+                            connection_types.append('short-short')
+                        else:
+                            connection_types.append('short-long')
+
+                        connections += 1
                 except ValueError as e:
                     print(f"Error while processing connection: {e}")
                     continue
 
-            if best_connection is not None:
-                # Record the connection
-                closest_connections.append(best_connection)
-                median_costs.append(best_median_cost)
-                step_costs.append(best_step_cost)
-                lengths.append(best_connection.length)
-                connection_types.append(connection_type)
-
     print('Process long trails')
     # First, connect long trails with higher priority
-    process_trails(long_trail_indices, connection_threshold=300, max_connections=10)
+    process_trails(long_trail_indices, check_points=long_trail_check_points, max_connections=long_trail_max_connections)
 
     print('Process short trails')
     # Connect the remaining trails
-    process_trails(range(len(all_coords)), connection_threshold=100, max_connections=3)
+    process_trails(range(len(all_coords)), check_points=short_trail_check_points, max_connections=short_trail_max_connections)
 
     # Create a GeoDataFrame for the connected lines
     connections_gdf = gpd.GeoDataFrame({
@@ -170,31 +207,15 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
     }, crs=gdf.crs)
 
     print(f'Merging connections of gdf of {len(gdf)} length and connections_gdf of {len(connections_gdf)} length')
-    print('gdf: ', gdf.head())
-    print('connections_gdf: ', connections_gdf.head())
 
     # Combine the original and newly created connections
     gdf['connection_type'] = 'trail'
     combined_gdf = pd.concat([gdf, connections_gdf], ignore_index=True)
     print('Merged')
 
-    # Extend the lists for new connections
-    num_new_connections = len(connections_gdf)
-    line_probabilities.extend([np.nan] * num_new_connections)
-    line_classifications.extend(['trail'] * num_new_connections)
-
-    # Use the provided 'length' for the line length
-    if 'length' in combined_gdf.columns:
-        combined_gdf['line_length'] = combined_gdf['length']
-    else:
-        combined_gdf['line_length'] = combined_gdf.geometry.length
-
-    combined_gdf['avg_probability'] = line_probabilities
-    combined_gdf['classification'] = line_classifications
-
     # Create a GeoDataFrame for the points with classifications
     point_classifications = [
-        classify_trail_length(combined_gdf.loc[line_id, 'line_length'], threshold_length)
+        classify_trail_length(combined_gdf.loc[line_id, 'length'], threshold_length)
         for line_id in line_ids
     ]
 
@@ -204,12 +225,13 @@ def connect_segments(gdf, raster_path, connection_threshold=200, max_connections
         'classification': point_classifications
     }, crs=gdf.crs)
 
-    # # Save points with classifications
-    # points_output_path = os.path.join(os.path.dirname(raster_path), 'endpoints.gpkg')
-    # points_gdf.to_file(points_output_path, driver='GPKG')
-    # print(f"Saved points with classifications to {points_output_path}")
+    # Save points with classifications
+    points_output_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment/endpoints.gpkg'
+    points_gdf.to_file(points_output_path, driver='GPKG')
+    print(f"Saved points with classifications to {points_output_path}")
 
     return combined_gdf
+
 
 def process_file(centerline_file, centerline_folder, raster_folder, output_folder, threshold_distance):
     base_name = os.path.splitext(centerline_file)[0]
@@ -223,15 +245,19 @@ def process_file(centerline_file, centerline_folder, raster_folder, output_folde
         gdf = gpd.read_file(centerline_path)
 
         print('Starting connect_segment')
-        simplified_gdf = connect_segments(gdf, raster_file, connection_threshold=threshold_distance, high_cost_factor=1.5,
-                                                     low_prob_threshold=3)
+        simplified_gdf = connect_segments(gdf, raster_file, connection_threshold=threshold_distance,
+                                          tolerance=5, high_cost_factor=1.5,
+                                          low_prob_threshold=3, long_trail_check_points=20,
+                                          long_trail_max_connections=5,
+                                          short_trail_check_points=5, short_trail_max_connections=1)
+
         print('Filtering out short lines')
         # Filter out lines shorter than a certain length
         simplified_gdf = simplified_gdf[simplified_gdf.geometry.length >= 1]
 
         print('Saving connections')
         # Save the connected output as GeoPackage
-        output_gpkg = os.path.join(output_folder, f"{base_name}_connect.gpkg")
+        output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
         simplified_gdf.to_file(output_gpkg, driver='GPKG')
         print(f"Saved simplified output as GeoPackage to {output_gpkg}")
     else:
