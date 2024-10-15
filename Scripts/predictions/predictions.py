@@ -19,6 +19,10 @@ from rasterio.windows import Window
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
 class UNetPredictionFlow(FlowSpec):
     """
     This flow handles the prediction of a large image using a sliding window approach:
@@ -30,7 +34,7 @@ class UNetPredictionFlow(FlowSpec):
 
     environment = 'local'
     username = 'irina.terenteva'
-    batch_size = Parameter('batch_size', default=16, help="Batch size for predicting patches.")
+    batch_size = Parameter('batch_size', default=4, help="Batch size for predicting patches.")
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
@@ -159,6 +163,8 @@ class UNetPredictionFlow(FlowSpec):
 
                         # Ensure window is within image boundaries
                         window = Window(j, i, window_width, window_height)
+                        print(window)
+                        print('Src shape: ', src.shape)
 
                         # Read the patch
                         patch = src.read(window=window)
@@ -206,7 +212,7 @@ class UNetPredictionFlow(FlowSpec):
             # Unpad the patch back to its original size
             pred_patch = pred_patch[:window_height, :window_width]
 
-            print('Save batch')
+            print('Save batch', flush=True)
 
             # Write the prediction directly to the output file
             dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, window_width, window_height))
