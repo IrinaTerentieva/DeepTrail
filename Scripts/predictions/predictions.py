@@ -13,6 +13,7 @@ from metaflow import FlowSpec, step, Parameter
 from custom_unet import custom_unet
 from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics
 from rasterio.windows import Window
+# from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 # Suppress TensorFlow and CUDA logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -29,7 +30,7 @@ class UNetPredictionFlow(FlowSpec):
 
     environment = 'local'
     username = 'irina.terenteva'
-    batch_size = Parameter('batch_size', default=8, help="Batch size for predicting patches.")
+    batch_size = Parameter('batch_size', default=16, help="Batch size for predicting patches.")
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
@@ -63,7 +64,10 @@ class UNetPredictionFlow(FlowSpec):
 
         # Ensure proper formatting of paths based on config
         self.model_path = os.path.join(self.base_dir(), self.config['prediction_params']['model_path'])
-        self.input_image_path = os.path.join(self.base_dir(), self.config['prediction_params']['test_image_path'])
+
+        # self.input_image_path = os.path.join(self.base_dir(), self.config['prediction_params']['test_image_path'])
+        self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
+
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
         self.overlap_size = self.config['prediction_params']['overlap_size']
@@ -175,6 +179,7 @@ class UNetPredictionFlow(FlowSpec):
                             self.process_batch_and_save(patches, coords, dst)
                             patches, coords = [], []
 
+
                 # Process any remaining patches
                 if patches:
                     self.process_batch_and_save(patches, coords, dst)
@@ -200,6 +205,8 @@ class UNetPredictionFlow(FlowSpec):
 
             # Unpad the patch back to its original size
             pred_patch = pred_patch[:window_height, :window_width]
+
+            print('Save batch')
 
             # Write the prediction directly to the output file
             dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, window_width, window_height))

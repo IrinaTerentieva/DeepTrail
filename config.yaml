@@ -55,12 +55,12 @@ prediction_params:
 #  model_path: Models/Weights/10cm/Human_DTM_512_byCNN_9ep.h5
   model_path: Models/Weights/Trails_Tracks_DTM50cm_512px.h5 # works well with 512 patch size; same as Human_DTM50cm_256_byCNN_8ep
   output_dir: DATA/Test_Models
-  overlap_size: 256
+  overlap_size: 0
   patch_size: 512
 #  test_image_path: DATA/DTM/Drone/PFT_KirbySouth_July2022_DTM.tif
 #  test_image_path: DATA/DTM/Airborne/Kirby_10cm_normDTM6m_fen.tif
-  test_image_path: DATA/Test_Models/LiDeaII_50cm_normDTM_bigtest.tif
-#  test_image_path: DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif
+#  test_image_path: DATA/Test_Models/LiDeaII_50cm_normDTM_bigtest.tif
+  test_image_path: DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif
 
 # Preprocessing Parameters
 preprocessing:
