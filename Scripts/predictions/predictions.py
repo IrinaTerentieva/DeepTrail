@@ -65,7 +65,7 @@ class UNetPredictionFlow(FlowSpec):
         # Ensure proper formatting of paths based on config
         self.model_path = os.path.join(self.base_dir(), self.config['prediction_params']['model_path'])
 
-        self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
+        self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/Lidea2022_ndtm.tif'
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
         self.overlap_size = self.config['prediction_params']['overlap_size']
