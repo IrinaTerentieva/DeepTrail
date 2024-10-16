@@ -42,14 +42,14 @@ augmentations:
 # Training Parameters
 training:
   early_stopping_patience: 5
-  batch_size: 2
+  batch_size: 4
   learning_rate: 0.0001
-  num_epochs: 15
+  num_epochs: 10
   loss_function: focal
 
 # Prediction Parameters
 prediction_params:
-  inverted: True
+  inverted: False
 #  model_path: Models/Weights/best/Human_DTM10cm_512_byCNN_9ep_good.h5
 #  model_path: Models/checkpoints/UNet-patch1024-lr0.0001-epoch12-val_loss0.42.weights.h5       ### TOO many trails: playful-plasma-8
 #  model_path: Models/Weights/10cm/Human_DTM_512_byCNN_9ep.h5
