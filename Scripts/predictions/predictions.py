@@ -1,5 +1,7 @@
 import os
 import sys
+import gc
+gc.collect()
 
 sys.path.append('/media/irro/All/HumanFootprint/Models/custom_unet')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -13,15 +15,10 @@ from metaflow import FlowSpec, step, Parameter
 from custom_unet import custom_unet
 from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics
 from rasterio.windows import Window
-# from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 # Suppress TensorFlow and CUDA logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
-
-physical_devices = tf.config.experimental.list_physical_devices('GPU')
-if physical_devices:
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 class UNetPredictionFlow(FlowSpec):
     """
@@ -34,7 +31,7 @@ class UNetPredictionFlow(FlowSpec):
 
     environment = 'local'
     username = 'irina.terenteva'
-    batch_size = Parameter('batch_size', default=4, help="Batch size for predicting patches.")
+    batch_size = Parameter('batch_size', default=16, help="Batch size for predicting patches.")
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
@@ -61,7 +58,7 @@ class UNetPredictionFlow(FlowSpec):
         """
         # Load the config file
         config_path = os.path.join(self.base_dir(), 'config.yaml')
-        print(f"Loading configuration from {config_path}")
+        print(f"Loading configuration from {config_path}", flush=True)
 
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
@@ -69,22 +66,20 @@ class UNetPredictionFlow(FlowSpec):
         # Ensure proper formatting of paths based on config
         self.model_path = os.path.join(self.base_dir(), self.config['prediction_params']['model_path'])
 
-        # self.input_image_path = os.path.join(self.base_dir(), self.config['prediction_params']['test_image_path'])
         self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
-
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
         self.overlap_size = self.config['prediction_params']['overlap_size']
         self.invert_image = self.config['prediction_params']['inverted']
 
-        print(f"\n******\nModel Path: {self.model_path}")
-        print(f"Input Image Path: {self.input_image_path}")
-        print(f"Output Directory: {self.output_dir}")
+        print(f"\n******\nModel Path: {self.model_path}", flush=True)
+        print(f"Input Image Path: {self.input_image_path}", flush=True)
+        print(f"Output Directory: {self.output_dir}", flush=True)
 
         # Create the output directory if it doesn't exist
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-            print(f"Created output directory: {self.output_dir}")
+            print(f"Created output directory: {self.output_dir}", flush=True)
 
         self.next(self.load_model)
 
@@ -96,7 +91,7 @@ class UNetPredictionFlow(FlowSpec):
         config = self.config['model']['custom_unet']
 
         input_shape = (config['patch_size'], config['patch_size'], config['num_bands'])
-        print(f"Loading model from: {self.model_path}")
+        print(f"Loading model from: {self.model_path}", flush=True)
 
         self.model = custom_unet(
             input_shape=input_shape,
@@ -108,7 +103,7 @@ class UNetPredictionFlow(FlowSpec):
             num_layers=config['num_layers']
         )
         self.model.load_weights(self.model_path)
-        print("Model loaded successfully.")
+        print("Model loaded successfully.", flush=True)
 
         self.next(self.predict_and_save)
 
@@ -141,7 +136,7 @@ class UNetPredictionFlow(FlowSpec):
         base_name = os.path.splitext(os.path.basename(self.input_image_path))[0]
         model_name = os.path.basename(self.config['prediction_params']['model_path'])[:-3]
         output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}.tif")
-        print('Save to output path: ', output_path)
+        print('Save to output path: ', output_path, flush=True)
 
         # Open the input image and the output file for saving predictions
         with rasterio.open(self.input_image_path) as src:
@@ -153,7 +148,7 @@ class UNetPredictionFlow(FlowSpec):
             patches, coords = [], []
 
             with rasterio.open(output_path, 'w', **profile) as dst:
-                print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...")
+                print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...", flush=True)
 
                 # Process each patch and write predictions in batches
                 for i in tqdm(range(0, original_height, stride)):
@@ -163,20 +158,18 @@ class UNetPredictionFlow(FlowSpec):
 
                         # Ensure window is within image boundaries
                         window = Window(j, i, window_width, window_height)
-                        print(window)
-                        print('Src shape: ', src.shape)
 
                         # Read the patch
                         patch = src.read(window=window)
                         patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
 
-                        # Pad if necessary
                         if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
-                            patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
+                            # patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
+                            print('Ignored padding')
+                            continue
 
                         # Preprocess the patch (resize and normalize)
                         patch_norm = self.preprocess_image(patch)
-
                         patches.append(patch_norm)
                         coords.append((i, j, window, patch.shape[0], patch.shape[1]))
 
@@ -185,12 +178,11 @@ class UNetPredictionFlow(FlowSpec):
                             self.process_batch_and_save(patches, coords, dst)
                             patches, coords = [], []
 
-
                 # Process any remaining patches
                 if patches:
                     self.process_batch_and_save(patches, coords, dst)
 
-                print(f"Sliding window prediction completed. Predictions saved to {output_path}.")
+                print(f"Sliding window prediction completed. Predictions saved to {output_path}.", flush=True)
 
         self.next(self.end)
 
@@ -205,14 +197,17 @@ class UNetPredictionFlow(FlowSpec):
             pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
             i, j, window, height, width = coords[idx]
 
+            # Logging for partial patches
+            if height != self.patch_size or width != self.patch_size:
+                print(f"Handling partial patch at row {i}, col {j}. Patch size: ({height}, {width})", flush=True)
+                continue
+
             # Adjust the window size to ensure it does not go out of bounds
             window_width = min(self.patch_size, dst.width - j)
             window_height = min(self.patch_size, dst.height - i)
 
             # Unpad the patch back to its original size
             pred_patch = pred_patch[:window_height, :window_width]
-
-            print('Save batch', flush=True)
 
             # Write the prediction directly to the output file
             dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, window_width, window_height))
@@ -222,7 +217,7 @@ class UNetPredictionFlow(FlowSpec):
         """
         Final step to log the completion of the prediction flow
         """
-        print("UNet prediction flow completed successfully.")
+        print("UNet prediction flow completed successfully.", flush=True)
 
 
 if __name__ == '__main__':
