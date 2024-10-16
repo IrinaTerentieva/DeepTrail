@@ -207,7 +207,108 @@ def build_augmentations(config):
 
     return A.Compose(augmentations)
 
-# ------------------- Predictions -------------------
+# -------------------------------------------------------------------
+# ------------------- Predictions with tensorflow -------------------
+# -------------------------------------------------------------------
+
+def sliding_window_prediction_tf(image_path, model, patch_size, stride, output_path, reference_image_path, scale_factor=100):
+    """
+    Perform sliding window prediction on an image with TensorFlow and save each patch prediction incrementally.
+
+    Args:
+        image_path (str): Path to the input image.
+        model (tf.keras.Model): The trained TensorFlow model to use for prediction.
+        patch_size (int): Size of the patch for the sliding window.
+        stride (int): Stride for the sliding window.
+        output_path (str): Path where the GeoTIFF should be saved.
+        reference_image_path (str): Path to the reference image (for metadata like CRS and transform).
+        scale_factor (int): Scaling factor to convert prediction to uint16 for saving.
+    """
+    # Open the reference image to get metadata
+    with rasterio.open(reference_image_path) as src:
+        height, width = src.shape
+        profile = src.profile.copy()
+        profile.update(dtype=rasterio.uint16, compress='LZW', nodata=0)  # Set nodata value to 0
+
+        # Open output file for writing predictions incrementally
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            print("Starting sliding window prediction...")
+
+            for i in tqdm(range(0, height - patch_size + 1, stride), desc="Sliding Window Rows"):
+                for j in tqdm(range(0, width - patch_size + 1, stride), desc="Sliding Window Cols", leave=False):
+                    # Extract patch
+                    patch = src.read(window=Window(j, i, patch_size, patch_size)).astype(np.float32)
+                    nodata_value = src.nodata
+                    if nodata_value is not None:
+                        patch[patch == nodata_value] = 0
+
+                    # Normalize patch
+                    patch = normalize_image(patch)
+                    patch = patch.reshape(1, patch_size, patch_size, 1).astype(np.float32)
+
+                    # Perform prediction
+                    predictions = model.predict(patch, verbose=0)
+                    prob_values = predictions.squeeze()  # Remove batch dimension
+
+                    # Convert probabilities to uint16
+                    pred_patch = (prob_values * scale_factor).astype(np.uint16)
+
+                    # Write the prediction directly to the output file
+                    dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, patch_size, patch_size))
+
+    print(f"Predictions saved incrementally to {output_path}")
+
+
+def save_predictions_tf(full_prediction, output_path, reference_image_path, scale_factor=100):
+    """
+    Save the predicted result as a GeoTIFF using chunks.
+
+    Args:
+        full_prediction (numpy.ndarray): Prediction array to save.
+        output_path (str): Path where the GeoTIFF should be saved.
+        reference_image_path (str): Path to the reference image (to get CRS and transform).
+        scale_factor (int): Scaling factor to convert prediction to uint16.
+    """
+    # Clear memory
+    gc.collect()
+
+    # Convert the full_prediction to uint16 for saving
+    full_prediction = (full_prediction * scale_factor).astype(np.uint16)
+
+    # Open reference image to get metadata
+    with rasterio.open(reference_image_path) as src:
+        height, width = full_prediction.shape
+        crs = src.crs
+        transform = src.transform
+
+    # Save the predictions using rasterio
+    with rasterio.open(
+            output_path,
+            'w',
+            driver='GTiff',
+            height=height,
+            width=width,
+            count=1,
+            dtype=rasterio.uint16,  # Save as uint16
+            crs=crs,
+            transform=transform,
+            blockxsize=64,  # Reduce chunk size for memory efficiency
+            blockysize=64,
+            tiled=True
+    ) as dst:
+        for i in tqdm(range(0, height, 64), desc="Saving chunks"):
+            for j in range(0, width, 64):
+                window_height = min(64, height - i)
+                window_width = min(64, width - j)
+
+                chunk = full_prediction[i:i + window_height, j:j + window_width]
+                dst.write(chunk, 1, window=Window(j, i, window_width, window_height))
+
+    print(f"Predictions saved to {output_path}")
+
+# -------------------------------------------------------------------
+# ------------------- Predictions with torch ------------------------
+# -------------------------------------------------------------------
 
 def sliding_window_prediction(image_path, model, patch_size, stride, max_height):
     """

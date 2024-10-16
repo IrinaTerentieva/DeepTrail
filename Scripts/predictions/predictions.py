@@ -13,7 +13,7 @@ import tensorflow as tf
 from tqdm import tqdm
 from metaflow import FlowSpec, step, Parameter
 from custom_unet import custom_unet
-from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics
+from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics, sliding_window_prediction_tf, save_predictions_tf
 from rasterio.windows import Window
 
 # Suppress TensorFlow and CUDA logs
@@ -31,7 +31,6 @@ class UNetPredictionFlow(FlowSpec):
 
     environment = 'local'
     username = 'irina.terenteva'
-    batch_size = Parameter('batch_size', default=16, help="Batch size for predicting patches.")
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
     def base_dir(self):
@@ -107,28 +106,10 @@ class UNetPredictionFlow(FlowSpec):
 
         self.next(self.predict_and_save)
 
-    def preprocess_image(self, patch):
-        """
-        Apply the same preprocessing steps used in training to the input image patch.
-        This includes resizing and normalization.
-        """
-        # Normalize the image patch as done in the data generator
-        self.invert_image = True
-        if self.invert_image:
-            patch = -patch
-            self.print_verbose("Image values inverted.")
-        patch = normalize_image(patch)
-        patch = patch.reshape(1, patch.shape[0], patch.shape[1], patch.shape[2])
-
-        # Print shape for debugging
-        self.print_verbose(f"Preprocessed patch shape: {patch.shape}")
-        return patch
-
     @step
     def predict_and_save(self):
         """
         Perform sliding window prediction on the large input image and save incrementally to disk.
-        Using batches for improved performance.
         """
         stride = self.patch_size - self.overlap_size
 
@@ -138,79 +119,17 @@ class UNetPredictionFlow(FlowSpec):
         output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}.tif")
         print('Save to output path: ', output_path, flush=True)
 
-        # Open the input image and the output file for saving predictions
-        with rasterio.open(self.input_image_path) as src:
-            original_height, original_width = src.shape
-            profile = src.profile.copy()
-            profile.update(dtype='uint8', compress='LZW', nodata=0)  # Set nodata value to 0
-
-            # Batch accumulation
-            patches, coords = [], []
-
-            with rasterio.open(output_path, 'w', **profile) as dst:
-                print(f"Starting sliding window prediction on image of size {original_height}x{original_width}...", flush=True)
-
-                # Process each patch and write predictions in batches
-                for i in tqdm(range(0, original_height, stride)):
-                    for j in range(0, original_width, stride):
-                        window_width = min(self.patch_size, original_width - j)
-                        window_height = min(self.patch_size, original_height - i)
-
-                        # Ensure window is within image boundaries
-                        window = Window(j, i, window_width, window_height)
-
-                        # Read the patch
-                        patch = src.read(window=window)
-                        patch = np.moveaxis(patch, 0, -1)  # Change to HWC format
-
-                        if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
-                            # patch = pad_to_shape(patch, (self.patch_size, self.patch_size))
-                            print('Ignored padding')
-                            continue
-
-                        # Preprocess the patch (resize and normalize)
-                        patch_norm = self.preprocess_image(patch)
-                        patches.append(patch_norm)
-                        coords.append((i, j, window, patch.shape[0], patch.shape[1]))
-
-                        # If we reached the batch size, process the batch
-                        if len(patches) == self.batch_size:
-                            self.process_batch_and_save(patches, coords, dst)
-                            patches, coords = [], []
-
-                # Process any remaining patches
-                if patches:
-                    self.process_batch_and_save(patches, coords, dst)
-
-                print(f"Sliding window prediction completed. Predictions saved to {output_path}.", flush=True)
+        # Run sliding window prediction and save incrementally
+        sliding_window_prediction_tf(
+            image_path=self.input_image_path,
+            model=self.model,
+            patch_size=self.patch_size,
+            stride=stride,
+            output_path=output_path,
+            reference_image_path=self.input_image_path  # Pass the same image as reference for metadata
+        )
 
         self.next(self.end)
-
-    def process_batch_and_save(self, patches, coords, dst):
-        """
-        Process a batch of patches and save the predictions to the output file.
-        """
-        patches = np.concatenate(patches, axis=0)
-        preds = self.model.predict(patches)
-
-        for idx, pred_patch in enumerate(preds):
-            pred_patch = (pred_patch * 100).squeeze().astype(np.uint8)
-            i, j, window, height, width = coords[idx]
-
-            # Logging for partial patches
-            if height != self.patch_size or width != self.patch_size:
-                print(f"Handling partial patch at row {i}, col {j}. Patch size: ({height}, {width})", flush=True)
-                continue
-
-            # Adjust the window size to ensure it does not go out of bounds
-            window_width = min(self.patch_size, dst.width - j)
-            window_height = min(self.patch_size, dst.height - i)
-
-            # Unpad the patch back to its original size
-            pred_patch = pred_patch[:window_height, :window_width]
-
-            # Write the prediction directly to the output file
-            dst.write(pred_patch[np.newaxis, :, :], window=Window(j, i, window_width, window_height))
 
     @step
     def end(self):
