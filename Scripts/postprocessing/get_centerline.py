@@ -389,7 +389,14 @@ def extract_network_from_tif(tif_input, threshold=10):
     if isinstance(tif_input, str) and os.path.isfile(tif_input):
         # It's a file path
         with rasterio.open(tif_input) as src:
-            binary_image = src.read(1) > threshold
+            # Read the raster data
+            data = src.read(1)
+
+            # Replace NoData values with zeros
+            if src.nodata is not None:
+                data[data == src.nodata] = 0
+            binary_image = data > threshold
+
     elif isinstance(tif_input, np.ndarray):
         # It's a NumPy array
         binary_image = tif_input > threshold
@@ -397,18 +404,16 @@ def extract_network_from_tif(tif_input, threshold=10):
         raise ValueError("Input must be a file path to a .tif file or a NumPy array.")
 
     print(f'Binary pixels: {binary_image.sum()}')
-
-    # Skeletonize the binary image
+    print(binary_image)
+    print(binary_image.shape)
     skel = morphology.skeletonize(binary_image)
 
     # Extract the network from the skeletonized image
-    g = connect_graph(skel, min_distance=10)  # Adjust min_distance as needed
-    #     print(g)
+    g = connect_graph(skel, min_distance=3)  # Adjust min_distance as needed
     g = simplify_paths(g)
     print('after simplify', g)
 
     return skel, g
-
 
 def network_to_geojson_new(g: nx.Graph):
     features = []
@@ -451,7 +456,7 @@ def process_tif_files(dir_path, init_threshold=20):
     # Loop through the directory to collect _label.tif files
     for root, dirs, files in os.walk(dir_path):
         for file in files:
-            if file.endswith('_label.tif'):
+            if file.endswith('.tif'):
                 label_tif_files.append(os.path.join(root, file))
 
     # Process each file
@@ -487,10 +492,9 @@ def process_tif_files(dir_path, init_threshold=20):
 
 if __name__ == "__main__":
     # Set the directory path and initial threshold
-    directory_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+    # dir_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
+    dir_path =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test'
     initial_threshold = 20
 
     # Process the tif files in the directory
-    process_tif_files(directory_path, initial_threshold)
-
-
+    process_tif_files(dir_path, initial_threshold)
