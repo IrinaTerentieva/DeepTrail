@@ -15,6 +15,8 @@ from PIL import Image
 from skimage import morphology, segmentation
 from affine import Affine
 from scipy.ndimage import label, center_of_mass
+from shapely.geometry import LineString, Point
+import networkx as nx
 
 # File paths
 input = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
@@ -296,7 +298,6 @@ def connect_graph(skel: np.ndarray, min_distance: int) -> nx.MultiGraph:
             if d < min_distance and node_pair not in processed_pairs:
                 nodes = merge_nodes(nodes, edges, n1, n2)
                 edges = find_paths(skel, nodes, min_distance)
-                #                 print(f'Merged {n1} and {n2}, d={d}')
                 merged_any = True
                 processed_pairs.add(node_pair)
                 break
@@ -305,10 +306,6 @@ def connect_graph(skel: np.ndarray, min_distance: int) -> nx.MultiGraph:
             break  # Exit the loop if no more nodes were merged
 
     return make_graph(nodes, edges)
-
-
-from shapely.geometry import LineString, Point
-import networkx as nx
 
 
 def network_to_geojson(g: nx.Graph, transform):
@@ -343,7 +340,7 @@ def network_to_geojson(g: nx.Graph, transform):
         'features': features
     }
 
-def save_network_as_shapefile(g, tif_path):
+def save_network_as_shapefile(g, tif_path, len_threshold = 2):
     """
     Save the network graph as a GeoPackage file, with length added as an attribute.
 
@@ -366,6 +363,7 @@ def save_network_as_shapefile(g, tif_path):
         # Convert GeoJSON to GeoDataFrame with the correct CRS
         gdf = gpd.GeoDataFrame.from_features(network_geojson, crs=crs)
         gdf['length'] = gdf.geometry.length
+        gdf = gdf[gdf['length'] > len_threshold]
 
         # Create the 'connected_label' directory if it doesn't exist
         output_dir = os.path.join(os.path.dirname(tif_path), 'centerline')
@@ -384,7 +382,7 @@ def save_network_as_shapefile(g, tif_path):
         raise
 
 
-def extract_network_from_tif(tif_input, threshold=10):
+def extract_network_from_tif(tif_input, threshold=10, min_distance = 10):
     # Check if input is a file path or a NumPy array
     if isinstance(tif_input, str) and os.path.isfile(tif_input):
         # It's a file path
@@ -409,11 +407,17 @@ def extract_network_from_tif(tif_input, threshold=10):
     skel = morphology.skeletonize(binary_image)
 
     # Extract the network from the skeletonized image
-    g = connect_graph(skel, min_distance=3)  # Adjust min_distance as needed
+    g = connect_graph(skel, min_distance)
+
+    while len(g.edges) < 10 and min_distance > 1:
+        min_distance -= 3
+        g = connect_graph(skel, min_distance)
+
     g = simplify_paths(g)
     print('after simplify', g)
 
     return skel, g
+
 
 def network_to_geojson_new(g: nx.Graph):
     features = []
@@ -441,23 +445,26 @@ def network_to_geojson_new(g: nx.Graph):
 
     return {'type': 'FeatureCollection', 'features': features}
 
-def process_tif_files(dir_path, init_threshold=20):
+def process_tif_files(input_path, init_threshold=20, min_distance = 10, len_threshold = 2):
     """
-    Process each '_label.tif' file in the specified directory and dynamically adjust threshold
+    Process each '_label.tif' file in the specified path and dynamically adjust threshold
     to extract the network and save the results.
+    The input path can either be a file or a directory.
     """
     # List to store paths of '_label.tif' files
     label_tif_files = []
 
-    # Create output directory for connected_label files
-    connected_label_dir = os.path.join(dir_path, "connected_label")
-    os.makedirs(connected_label_dir, exist_ok=True)
-
-    # Loop through the directory to collect _label.tif files
-    for root, dirs, files in os.walk(dir_path):
+    # Determine if input is a directory or a file
+    if os.path.isdir(input_path):
+        # List all files in the directory (without traversing subfolders)
+        files = os.listdir(input_path)
         for file in files:
             if file.endswith('.tif'):
-                label_tif_files.append(os.path.join(root, file))
+                label_tif_files.append(os.path.join(input_path, file))
+    elif os.path.isfile(input_path) and input_path.endswith('.tif'):
+        label_tif_files.append(input_path)
+    else:
+        raise ValueError("Input path must be either a directory or a .tif file.")
 
     # Process each file
     for tif_path in label_tif_files:
@@ -471,13 +478,13 @@ def process_tif_files(dir_path, init_threshold=20):
             print('Start processing')
 
             # Extract network from tif file with the initial threshold
-            skel, g = extract_network_from_tif(tif_path, threshold)
+            skel, g = extract_network_from_tif(tif_path, threshold, min_distance)
 
             # Dynamically adjust threshold if not enough edges are found
             while len(g.edges) < 10:
                 print('Ooops, not enough edges found')
                 threshold += 5
-                skel, g = extract_network_from_tif(tif_path, threshold)
+                skel, g = extract_network_from_tif(tif_path, threshold, len_threshold)
                 print(f'New Threshold: {threshold}')
 
                 if threshold > 40:
@@ -486,15 +493,20 @@ def process_tif_files(dir_path, init_threshold=20):
 
             # Save the results into the connected_label directory
             if len(g.edges) >= 10:
-                save_network_as_shapefile(g, tif_path)
+                save_network_as_shapefile(g, tif_path, len_threshold)
             else:
                 print(f"Skipping file: {tif_path}, not enough edges found.")
+
 
 if __name__ == "__main__":
     # Set the directory path and initial threshold
     # dir_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
-    dir_path =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test'
+    input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test'
+    # input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test/test_small.tif'
+
     initial_threshold = 20
+    min_distance = 7
+    len_threshold = 5
 
     # Process the tif files in the directory
-    process_tif_files(dir_path, initial_threshold)
+    process_tif_files(input, initial_threshold, min_distance, len_threshold)
