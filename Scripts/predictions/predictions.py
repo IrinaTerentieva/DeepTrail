@@ -67,7 +67,7 @@ class UNetPredictionFlow(FlowSpec):
 
         self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
         self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LideaSouth_nDTM_2022_30cm.tif'
-        # self.input_image_path = '/media/irro/All/LineFootprint/DATA/raw/nDTM/Surmont_nDTM_2022_50cm.tif'
+        self.input_image_path = '/media/irro/All/LineFootprint/DATA/raw/nDTM/Surmont_nDTM_2022_50cm.tif'
 
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
