@@ -408,6 +408,11 @@ def extract_network_from_tif(tif_input, threshold=10, min_distance = 10):
 
     # Extract the network from the skeletonized image
     g = connect_graph(skel, min_distance)
+    print('after connect_graph', g)
+
+    # Connect segments
+    g = connect_segments(g)
+    print('after connect_segments', g)
 
     while len(g.edges) < 10 and min_distance > 1:
         min_distance -= 3
@@ -444,6 +449,33 @@ def network_to_geojson_new(g: nx.Graph):
             features.append(feature)
 
     return {'type': 'FeatureCollection', 'features': features}
+
+def connect_segments(g: nx.Graph) -> nx.Graph:
+    """
+    Connect segments that are attached to each other by merging edges with a common node.
+
+    Args:
+        g (nx.Graph): Graph representing the network with segments as edges.
+
+    Returns:
+        nx.Graph: Updated graph with connected segments.
+    """
+    # Iterate through nodes to find nodes with degree 2 (indicating they are connecting points between two segments)
+    for node in list(g.nodes):
+        if g.degree[node] == 2:
+            neighbors = list(g.neighbors(node))
+            if len(neighbors) == 2:
+                n1, n2 = neighbors
+                # Get the paths of the two edges to be merged
+                path1 = g[node][n1][0]['path']
+                path2 = g[node][n2][0]['path']
+                # Combine the paths, excluding the duplicate node
+                combined_path = list(path1) + list(path2[1:])
+                # Add a new edge with the combined path
+                g.add_edge(n1, n2, path=combined_path, d=len(combined_path) - 1)
+                # Remove the old edges and the intermediate node
+                g.remove_node(node)
+    return g
 
 def process_tif_files(input_path, init_threshold=20, min_distance = 10, len_threshold = 2):
     """
@@ -505,8 +537,8 @@ if __name__ == "__main__":
     # input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test/test_small.tif'
 
     initial_threshold = 20
-    min_distance = 7
-    len_threshold = 5
+    min_distance = 3
+    len_threshold = 3
 
     # Process the tif files in the directory
     process_tif_files(input, initial_threshold, min_distance, len_threshold)
