@@ -533,10 +533,10 @@ def process_tif_files(input_path, init_threshold=20, min_distance = 10, len_thre
 if __name__ == "__main__":
     # Set the directory path and initial threshold
     # dir_path = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
-    input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test'
+    input =  '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
     # input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test/test_small.tif'
 
-    initial_threshold = 20
+    initial_threshold = 40
     min_distance = 3
     len_threshold = 3
 
