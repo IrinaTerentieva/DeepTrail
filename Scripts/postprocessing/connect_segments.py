@@ -288,8 +288,11 @@ def process_files_in_folder(centerline_folder, raster_folder, output_folder, thr
 def main():
     # Paths for the input centerline files, corresponding rasters, and output directory
     centerline_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/centerline/test'
-    raster_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
     output_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
+
+    centerline_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/centerline_20thre'
+    raster_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
+    output_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/connected_segment'
 
     # Process files in parallel with 4 workers
     process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=1)

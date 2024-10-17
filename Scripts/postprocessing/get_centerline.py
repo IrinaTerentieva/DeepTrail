@@ -17,10 +17,94 @@ from affine import Affine
 from scipy.ndimage import label, center_of_mass
 from shapely.geometry import LineString, Point
 import networkx as nx
+from skimage import morphology
+import math
 
-# File paths
-input = '/media/irro/All/HumanFootprint/DATA/intermediate/1_label.tif'
+import math
 
+
+def assign_line_direction(g: nx.Graph) -> nx.Graph:
+    """
+    Assigns a general direction (in degrees) to each line in the graph.
+
+    This works for both simple graphs and multigraphs (where multiple edges between the same two nodes can exist).
+
+    Parameters:
+    - g: A NetworkX graph where edges represent line segments.
+
+    Returns:
+    - g: The same graph with a 'direction' attribute added to each edge.
+    """
+    for u, v, k, edge_data in g.edges(keys=True, data=True):
+        path = edge_data.get('path', [])
+
+        if len(path) >= 2:
+            # Calculate direction based on start and end points
+            start_point = path[0]
+            end_point = path[-1]
+
+            # Calculate angle in radians and convert to degrees
+            delta_x = end_point[0] - start_point[0]
+            delta_y = end_point[1] - start_point[1]
+            angle_rad = math.atan2(delta_y, delta_x)
+            angle_deg = math.degrees(angle_rad)
+
+            # Normalize the angle to be within [0, 360] degrees
+            angle_deg = (angle_deg + 360) % 360
+
+            # Assign direction to the edge
+            g.edges[u, v, k]['direction'] = angle_deg
+
+    return g
+
+def denoise_binary_image(binary_image: np.ndarray, area_threshold: int = 50) -> np.ndarray:
+    """
+    Removes small connected components from a binary image.
+
+    Parameters:
+    - binary_image: 2D numpy array, the binary image to be denoised.
+    - area_threshold: int, minimum area size of connected components to keep.
+
+    Returns:
+    - denoised_image: 2D numpy array, the binary image with small components removed.
+    """
+    # Label the connected components in the binary image
+    labeled_image, num_labels = label(binary_image)
+
+    # Remove small components based on the area threshold
+    denoised_image = morphology.remove_small_objects(labeled_image, min_size=area_threshold)
+
+    # Convert the denoised labeled image back to binary
+    denoised_image = denoised_image > 0
+
+    return denoised_image
+
+def connect_segments(g: nx.Graph) -> nx.Graph:
+    """
+    Connect segments that are attached to each other by merging edges with a common node.
+
+    Args:
+        g (nx.Graph): Graph representing the network with segments as edges.
+
+    Returns:
+        nx.Graph: Updated graph with connected segments.
+    """
+    # Iterate through nodes to find nodes with degree 2 (indicating they are connecting points between two segments)
+    for node in list(g.nodes):
+        if g.degree[node] == 2:
+            neighbors = list(g.neighbors(node))
+            if len(neighbors) == 2:
+                n1, n2 = neighbors
+                # Get the paths of the two edges to be merged
+                path1 = g[node][n1][0]['path']
+                path2 = g[node][n2][0]['path']
+                # Combine the paths, excluding the duplicate node
+                combined_path = list(path1) + list(path2[1:])
+                # Add a new edge with the combined path
+                g.add_edge(n1, n2, path=combined_path, d=len(combined_path) - 1)
+                # Remove the old edges and the intermediate node
+                g.remove_node(node)
+    return g
 
 def find_color(im: Image, rgb: Tuple[int]) -> np.ndarray:
     """Given an RGB image, return an ndarray with 1s where the pixel is the given color."""
@@ -402,17 +486,14 @@ def extract_network_from_tif(tif_input, threshold=10, min_distance = 10):
         raise ValueError("Input must be a file path to a .tif file or a NumPy array.")
 
     print(f'Binary pixels: {binary_image.sum()}')
-    print(binary_image)
-    print(binary_image.shape)
+    binary_image = denoise_binary_image(binary_image, area_threshold=50)
+    print('Denoised')
     skel = morphology.skeletonize(binary_image)
-
-    # Extract the network from the skeletonized image
+    print('Skeletonized')
     g = connect_graph(skel, min_distance)
-    print('after connect_graph', g)
-
-    # Connect segments
-    g = connect_segments(g)
-    print('after connect_segments', g)
+    print('Graph connected')
+    g = assign_line_direction(g)
+    print('Direction assigned', g)
 
     while len(g.edges) < 10 and min_distance > 1:
         min_distance -= 3
@@ -422,7 +503,6 @@ def extract_network_from_tif(tif_input, threshold=10, min_distance = 10):
     print('after simplify', g)
 
     return skel, g
-
 
 def network_to_geojson_new(g: nx.Graph):
     features = []
@@ -536,7 +616,7 @@ if __name__ == "__main__":
     input =  '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
     # input =  '/media/irro/All/RecoveryStatus/DATA/temp/connect_segments_test/test_small.tif'
 
-    initial_threshold = 40
+    initial_threshold = 20
     min_distance = 3
     len_threshold = 3
 
