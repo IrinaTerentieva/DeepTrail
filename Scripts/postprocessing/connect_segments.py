@@ -294,6 +294,10 @@ def main():
     raster_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
     output_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/connected_segment'
 
+    centerline_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect'
+    raster_folder = '/media/irro/All/HumanFootprint/DATA/Products/Unet/Kirby/DTM10cm'
+    output_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect/connected_segment'
+
     # Process files in parallel with 4 workers
     process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=1)
 
