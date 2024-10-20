@@ -108,7 +108,7 @@ def connect_segments(
         line_classifications.append(classification)
 
     # Use a cost map based on probability
-    cost_map = 100 - probability_map
+    cost_map = np.array(100 - probability_map, dtype=np.float32)
     cost_map = np.where(cost_map > 50, cost_map * high_cost_factor, cost_map)
     cost_map[probability_map < low_prob_threshold] = 1000
 
@@ -286,17 +286,21 @@ def process_files_in_folder(centerline_folder, raster_folder, output_folder, thr
                 print(f"Generated an exception: {exc}")
 
 def main():
-    # Paths for the input centerline files, corresponding rasters, and output directory
-    centerline_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/centerline/test'
-    output_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
+    # # Paths for the input centerline files, corresponding rasters, and output directory
+    # centerline_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/centerline/test'
+    # output_folder = '/media/irro/All/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
+    #
+    # centerline_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/centerline_20thre'
+    # raster_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
+    # output_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/connected_segment'
+    #
+    # centerline_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect'
+    # raster_folder = '/media/irro/All/HumanFootprint/DATA/Products/Unet/Kirby/DTM10cm'
+    # output_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect/connected_segment'
 
-    centerline_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/centerline_20thre'
-    raster_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp'
-    output_folder = '/media/irro/All/HumanFootprint/DATA/Test_Models/temp/connected_segment'
-
-    centerline_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect'
-    raster_folder = '/media/irro/All/HumanFootprint/DATA/Products/Unet/Kirby/DTM10cm'
-    output_folder = '/media/irro/All/HumanFootprint/DATA/intermediate/connect/connected_segment'
+    centerline_folder = '/home/irina.terenteva/HumanFootprint/DATA/connect'
+    raster_folder = '/home/irina.terenteva/HumanFootprint/DATA/connect'
+    output_folder = '/home/irina.terenteva/HumanFootprint/DATA/connect/connected_segment'
 
     # Process files in parallel with 4 workers
     process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=1)
