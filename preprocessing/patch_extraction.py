@@ -1,0 +1,199 @@
+import os
+import numpy as np
+import rasterio
+from rasterio.mask import mask
+import geopandas as gpd
+from shapely.geometry import box
+from tqdm import tqdm
+import yaml
+from metaflow import FlowSpec, step
+from datetime import datetime
+import shutil
+from rasterio.windows import Window
+
+class PatchExtractionFlow(FlowSpec):
+    """
+    This flow handles patch extraction:
+    - Loads points file
+    - Buffers points
+    - Extracts CHM and rasterized canopy footprint patches
+    """
+
+    # Fetch environment from environment variable
+    environment = os.getenv('ENVIRONMENT', 'local')  # Default to 'local' if not set
+    username = 'irina.terenteva'
+
+    def base_dir(self):
+        """
+        Dynamically set the base directory depending on environment.
+        """
+        if self.environment == 'hpc':
+            return f'/home/{self.username}/HumanFootprint/'
+        else:
+            return '/media/irro/All/HumanFootprint/'
+
+    @step
+    def start(self):
+        """
+        Start step: Load the configuration settings from the central config.yaml file.
+        Log the start time and initial settings. Save config and code to output folder.
+        """
+        # Load the config file
+        config_path = os.path.join(self.base_dir(), 'config.yaml')
+        print(f"Loading configuration from {config_path}")
+
+        with open(config_path, 'r') as f:
+            self.config = yaml.safe_load(f)
+            self.patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']
+            self.config['preprocessing']['patch_extraction']['patches'] = self.config['preprocessing']['patch_extraction'][
+            'patches'].format(patch_size_pixels=self.patch_size_pixels)
+
+        # Log the start time and config information
+        self.start_time = datetime.now()
+        self.log = f"Patch extraction started at: {self.start_time}\n"
+        self.log += f"Configuration loaded:\n{self.config}\n"
+
+        # Create the output directory if it doesn't exist
+        self.output_dir = os.path.join(self.base_dir(), self.config['preprocessing']['patch_extraction']['patches'])
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+            print(f"Created output directory: {self.output_dir}")
+
+        # Save a copy of the config.yaml file in the output directory
+        output_config_path = os.path.join(self.output_dir, 'config_backup.yaml')
+        shutil.copy(config_path, output_config_path)
+        self.log += f"Configuration saved to: {output_config_path}\n"
+
+        # Save the executed code to the output folder
+        script_path = os.path.abspath(__file__)  # Get the path of the currently executing script
+        output_script_path = os.path.join(self.output_dir, 'executed_script_backup.py')
+        shutil.copy(script_path, output_script_path)
+        self.log += f"Executed script saved to: {output_script_path}\n"
+
+        print(f"Configuration and script saved in the output directory.")
+        self.next(self.load_points)
+
+    @step
+    def load_points(self):
+        """
+        Load the points file and prepare for patch extraction.
+        Logs key details such as point count and output directories.
+        """
+        print("Loading points file...")
+        points_path = os.path.join(self.base_dir(), self.config['preprocessing']['input_files']['points'])
+        self.points = gpd.read_file(points_path)
+        print(f"Loaded points file from: {points_path}")
+
+        # Log the number of loaded points
+        self.log += f"Number of points loaded: {len(self.points)}\n"
+
+        # Select random points based on n_random_points from config
+        n_random_points = self.config['preprocessing']['patch_extraction']['n_random_points']
+        if n_random_points < len(self.points):
+            print(f"Selecting {n_random_points} random points from {len(self.points)} total points.")
+            self.points = self.points.sample(n=n_random_points, random_state=42)
+        else:
+            print(f"Using all {len(self.points)} points for patch extraction.")
+
+        self.next(self.extract_patches)
+
+    @step
+    def extract_patches(self):
+        """
+        Extract patches with a fixed pixel size (e.g., 512x512 pixels) around each random point
+        and save CHM and label raster data. The actual physical size of each patch will vary
+        depending on the resolution of the raster.
+        """
+        # Define patch size in pixels (for UNet)
+        patch_size_pixels = self.config['preprocessing']['patch_extraction']['patch_size_pixels']  # e.g., 512
+        print(f"Processing patches with fixed size: {patch_size_pixels}x{patch_size_pixels} pixels...")
+
+        # Open rasters only in this step (to avoid pickling issues)
+        chm_path = os.path.join(self.base_dir(), self.config['preprocessing']['input_files']['chm'])
+        rasterized_canopy_path = os.path.join(self.base_dir(), self.config['preprocessing']['rasterization'][
+            'rasterized_canopy_footprint'])
+        print(f"Reading CHM from: {chm_path}")
+        print(f"Reading rasterized canopy from: {rasterized_canopy_path}")
+
+        with rasterio.open(chm_path) as chm, rasterio.open(rasterized_canopy_path) as cnn_raster:
+            # Get raster bounds
+            chm_bounds = chm.bounds
+            cnn_bounds = cnn_raster.bounds
+
+            # Loop over each point to extract patches
+            for ind, point_row in tqdm(self.points.iterrows(), total=self.points.shape[0]):
+                # Get the point coordinates (in raster CRS)
+                point_x, point_y = point_row.geometry.x, point_row.geometry.y
+
+                # Convert the point coordinates to pixel coordinates (col, row) in the raster
+                col, row = chm.index(point_x, point_y)
+
+                # Define the window (area) to extract around the point
+                window = Window(
+                    col_off=col - patch_size_pixels // 2,
+                    row_off=row - patch_size_pixels // 2,
+                    width=patch_size_pixels,
+                    height=patch_size_pixels
+                )
+
+                # Check if the window is within the raster bounds
+                if (col - patch_size_pixels // 2 < 0 or
+                        row - patch_size_pixels // 2 < 0 or
+                        col + patch_size_pixels // 2 > chm.width or
+                        row + patch_size_pixels // 2 > chm.height):
+                    print(f"Skipping point {ind} - out of bounds.")
+                    continue
+
+                # Extract CHM data within the window
+                try:
+                    chm_data = chm.read(1, window=window)
+                except rasterio.errors.WindowError as e:
+                    print(f"Skipping point {ind} due to CHM WindowError: {e}")
+                    continue
+
+                # Extract CNN raster data within the window
+                try:
+                    cnn_data = cnn_raster.read(1, window=window)
+                except rasterio.errors.WindowError as e:
+                    print(f"Skipping point {ind} due to CNN WindowError: {e}")
+                    continue
+
+                # Handle NoData in labels
+                cnn_nodata_value = cnn_raster.nodata
+                label_raster = cnn_data.astype(np.uint8)  # Keep labels as integers
+                if cnn_nodata_value is not None:
+                    label_raster[cnn_data == cnn_nodata_value] = 0  # Treat NoData as background (0)
+
+                # Save CHM data
+                output_image_path = os.path.join(self.output_dir, f"{ind}_image.tif")
+                with rasterio.open(output_image_path, 'w', driver='GTiff', height=chm_data.shape[0],
+                                   width=chm_data.shape[1], count=1, dtype=chm_data.dtype,
+                                   transform=chm.window_transform(window)) as out_image:
+                    out_image.write(chm_data, 1)
+
+                # Save label raster
+                output_label_path = os.path.join(self.output_dir, f"{ind}_label.tif")
+                with rasterio.open(output_label_path, 'w', driver='GTiff', height=label_raster.shape[0],
+                                   width=label_raster.shape[1], count=1, dtype=label_raster.dtype,
+                                   transform=cnn_raster.window_transform(window)) as out_label:
+                    out_label.write(label_raster, 1)
+
+        print("Patch extraction complete!")
+        self.next(self.end)
+
+    @step
+    def end(self):
+        """
+        Final step: Log completion of the patch extraction process.
+        """
+        self.end_time = datetime.now()
+        self.log += f"Patch extraction completed at: {self.end_time}\n"
+        self.log += f"Total execution time: {self.end_time - self.start_time}\n"
+        print(self.log)
+
+        # Save log as an artifact in Metaflow
+        self.log_artifact = self.log
+
+
+if __name__ == '__main__':
+    PatchExtractionFlow()
