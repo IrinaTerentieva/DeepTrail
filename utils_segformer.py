@@ -31,6 +31,7 @@ class TrailsDataset(Dataset):
         min_area (int, optional): Minimum area of connected regions to keep. Defaults to 300.
         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
     """
+
     def __init__(self, data_dir, threshold=20, min_area=400, transform=None):
         self.data_dir = data_dir
         self.transform = transform
