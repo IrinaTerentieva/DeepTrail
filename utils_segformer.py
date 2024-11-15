@@ -10,8 +10,16 @@ import gc  # For garbage collection
 import wandb  # For logging to Weights & Biases
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from collections import Counter
+
+
 
 # ------------------- Data Loader -------------------
+
+import numpy as np
+import torch
+import rasterio
+from scipy.ndimage import label
 
 class TrailsDataset(Dataset):
     """
@@ -19,12 +27,15 @@ class TrailsDataset(Dataset):
 
     Args:
         data_dir (str): Path to the directory containing image and mask files.
-        max_height (float): Maximum height value to clip and normalize the image.
+        threshold (int, optional): Threshold for binarizing the mask. Defaults to 20.
+        min_area (int, optional): Minimum area of connected regions to keep. Defaults to 300.
         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
     """
-    def __init__(self, data_dir, transform=None):
+    def __init__(self, data_dir, threshold=20, min_area=400, transform=None):
         self.data_dir = data_dir
         self.transform = transform
+        self.threshold = threshold  # Default threshold for binarizing the mask
+        self.min_area = min_area  # Default minimum area for filtering
         self.image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
 
     def __len__(self):
@@ -44,13 +55,19 @@ class TrailsDataset(Dataset):
             if image_nodata is not None:
                 image[image == image_nodata] = 0  # Replace nodata with 0
 
-            image = normalize_image(image)
+            image = normalize_nDTM(image)
 
         with rasterio.open(label_path) as label_src:
             mask = label_src.read(1).astype(np.uint8)  # Ensure mask is binary (0, 1)
             mask_nodata = label_src.nodata
             if mask_nodata is not None:
                 mask[mask == mask_nodata] = 0  # Replace nodata with 0
+
+            # Binarize mask based on threshold
+            mask = np.where(mask > self.threshold, 1, 0).astype(np.uint8)
+
+            # Filter out small regions
+            mask = self._filter_small_regions(mask)
 
         # Check the image and mask shape
         if image.shape != mask.shape:
@@ -65,6 +82,29 @@ class TrailsDataset(Dataset):
             mask = torch.from_numpy(mask).long()
 
         return image, mask
+
+    def _filter_small_regions(self, mask):
+        """
+        Filter out connected regions in the mask smaller than the minimum area.
+
+        Args:
+            mask (np.ndarray): Binary mask to filter.
+
+        Returns:
+            np.ndarray: Filtered binary mask.
+        """
+        # Label connected regions
+        labeled_mask, num_features = label(mask)
+        sizes = np.bincount(labeled_mask.ravel())  # Count the size of each region
+
+        # Create a mask to retain regions larger than or equal to min_area
+        large_regions = np.zeros_like(mask, dtype=np.uint8)
+        for region_id, size in enumerate(sizes):
+            if size >= self.min_area and region_id != 0:  # Ignore background region (id=0)
+                large_regions[labeled_mask == region_id] = 1  # Retain large region
+
+        return large_regions
+
 
 # ------------------- Image Normalization -------------------
 def normalize_image(image):
@@ -95,20 +135,96 @@ def normalize_image(image):
 
     return image
 
-# def normalize_image(image, max_height=25.0):
-#     """
-#     Normalize the image by clipping and scaling.
-#
-#     Args:
-#         image (np.array): Image array to normalize.
-#         max_height (float): Maximum height value for clipping.
-#
-#     Returns:
-#         torch.Tensor: Normalized image.
-#     """
-#     image = np.clip(image, 0, max_height)
-#     image = image / max_height
-#     return image
+# ------------------- Image nDTM Normalization -------------------
+def normalize_nDTM(image):
+    """
+    Normalize image to the [0, 1] range.
+    - Replace all negative values with 0.
+    - Use the next smallest positive value as the minimum for normalization.
+    """
+    # Replace NaNs with 0
+    image = np.nan_to_num(image, nan=0.0)
+
+    # Clip negative values to -10
+    image = np.clip(image, -1, 1)
+
+    min_positive_val = -1
+    max_val = 1
+
+    # Normalize to [0, 1] using the next positive value
+    image = (image - min_positive_val) / (max_val - min_positive_val)
+    return image
+
+def compute_class_weights(loader, num_classes):
+    """
+    Compute class weights dynamically based on pixel frequencies in the dataset.
+    """
+    class_counts = Counter()
+    total_pixels = 0
+
+    for _, mask in loader:
+        mask_np = mask.cpu().numpy()
+        unique, counts = np.unique(mask_np, return_counts=True)
+        class_counts.update(dict(zip(unique, counts)))
+        total_pixels += mask_np.size
+
+    # Calculate class weights inversely proportional to class frequencies
+    weights = []
+    for i in range(num_classes):
+        class_frequency = class_counts.get(i, 0) / total_pixels
+        weight = 1.0 / (class_frequency + 1e-6)  # Avoid division by zero
+        weights.append(weight)
+
+    return torch.tensor(weights)
+
+def calculate_metrics(predictions, targets, threshold=0.5):
+    """
+    Calculate IoU and Dice scores for predictions and ground truth.
+    """
+    predictions = (predictions > threshold).float()
+    targets = targets.float()
+
+    intersection = (predictions * targets).sum(dim=(1, 2))
+    union = predictions.sum(dim=(1, 2)) + targets.sum(dim=(1, 2)) - intersection
+    dice = 2 * intersection / (predictions.sum(dim=(1, 2)) + targets.sum(dim=(1, 2)) + 1e-6)
+
+    iou = intersection / (union + 1e-6)
+
+    return iou.mean().item(), dice.mean().item()
+
+def validate_data(loader):
+    """
+    Validate images and masks for spatial alignment, size consistency, and value ranges.
+    """
+    for idx, (image, mask) in enumerate(loader):
+        unique_img_values = torch.unique(image)
+        unique_mask_values = torch.unique(mask)
+
+        # Check size consistency
+        if image.shape[2:] != mask.shape[1:]:
+            raise ValueError(f"Image and mask size mismatch at index {idx}: "
+                             f"Image shape {image.shape}, Mask shape {mask.shape}")
+
+        # Check value ranges
+        if not (0 <= image.min() and image.max() <= 1):
+            print(f"image {idx} unique values: {unique_img_values}")
+            raise ValueError(f"Image values out of range at index {idx}.")
+        if not (mask.min() >= 0 and mask.max() <= 1):
+            print(f"image {idx} unique values: {unique_mask_values}")
+            raise ValueError(f"Mask values out of range at index {idx}.")
+
+        # Check spatial alignment (optional visualization)
+        if idx < 5:  # Only visualize the first few pairs
+            print(f"Visualizing image and mask pair at index {idx}")
+            plt.figure(figsize=(10, 5))
+            plt.subplot(1, 2, 1)
+            plt.imshow(image[0].cpu().numpy().transpose(1, 2, 0))
+            plt.title("Image")
+            plt.subplot(1, 2, 2)
+            plt.imshow(mask[0].cpu().numpy(), cmap='gray')
+            plt.title("Mask")
+            plt.show()
+
 
 
 # ------------------- Augmentation -------------------

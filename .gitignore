@@ -1,0 +1,62 @@
+# Ignore all JSON files
+*.json
+
+# Ignore all TIFF files
+*.tif
+*.tiff
+
+# Ignore Metaflow runtime data
+.metaflow/
+
+# Ignore Python cache and virtual environment directories
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Ignore hidden system files
+.DS_Store
+Thumbs.db
+
+# Ignore WandB directories
+wandb/
+
+# Ignore other project-specific data or temporary files
+*.h5
+*.yaml
+*.yml
+*.ckpt
+*.pth
+*.pt
+*.onnx
+
+# Ignore large data files
+*.csv
+*.xls
+*.xlsx
+*.geojson
+*.shp
+*.dbf
+*.prj
+*.shx
+
+# Ignore raster data files
+*.asc
+*.vrt
+*.img
+*.map
+

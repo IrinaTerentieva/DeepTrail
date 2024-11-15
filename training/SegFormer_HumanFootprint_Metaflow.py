@@ -13,10 +13,11 @@ import torch.nn as nn
 import shutil
 # from metaflow import current
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Add parent directory (where utils.py is located) to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils_segformer import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, plot_histograms, save_image_mask_pair
+from utils_segformer import TrailsDataset, FocalLoss, DiceLoss, EarlyStopping, build_augmentations, calculate_statistics, calculate_metrics, plot_histograms, compute_class_weights, save_image_mask_pair, validate_data
 
 # Set environment for CUDA memory management
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
@@ -129,6 +130,7 @@ class TrailSegmentationFlow(FlowSpec):
         self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4,
                                      pin_memory=True)
 
+
         self.next(self.visualize_data_loader_output)
 
     @step
@@ -139,6 +141,9 @@ class TrailSegmentationFlow(FlowSpec):
         Save figures and statistics as artifacts.
         """
         print("Saving image-label pairs and performing additional checks...")
+
+        validate_data(self.train_loader)
+        validate_data(self.val_loader)
 
         # Initialize lists to hold statistics and class imbalance data
         self.image_statistics = []
@@ -263,11 +268,12 @@ class TrailSegmentationFlow(FlowSpec):
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=1,
         #                                                  threshold=0.0001, cooldown=1)
 
-        # pos_weight for handling class imbalance
-        pos_weight = torch.tensor([9.0], device=device)  # Ensure pos_weight is on the correct device
+        class_weights = compute_class_weights(self.train_loader, self.num_classes)
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=class_weights.to(device))
 
-        # Initialize BCEWithLogitsLoss with pos_weight
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        # # pos_weight for handling class imbalance
+        # pos_weight = torch.tensor([9.0], device=device)  # Ensure pos_weight is on the correct device
+        # loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         def compute_loss(outputs, targets):
             logits = F.interpolate(outputs.logits, size=targets.shape[1:], mode="bilinear", align_corners=False)
@@ -358,13 +364,18 @@ class TrailSegmentationFlow(FlowSpec):
                 })
 
             print(f"Saved and logged validation predictions to {output_dir}")
-
+            ious, dices = [], []
             with torch.no_grad():
                 for step, (val_images, val_masks) in enumerate(self.val_loader):
                     val_images, val_masks = val_images.to(device), val_masks.squeeze(1).to(device)
 
                     # Forward pass through the model
                     val_outputs = self.model(pixel_values=val_images)
+                    preds = torch.sigmoid(val_outputs.logits).squeeze(1)
+
+                    iou, dice = calculate_metrics(preds, val_masks)
+                    ious.append(iou)
+                    dices.append(dice)
 
                     # Compute the validation loss for this batch
                     batch_val_loss = compute_loss(val_outputs, val_masks).item()
@@ -372,8 +383,11 @@ class TrailSegmentationFlow(FlowSpec):
                     # Accumulate the validation loss for this epoch
                     val_loss += batch_val_loss
 
-                    # Print validation loss for this step
-                    # print(f"Validation Step {step + 1}/{len(self.val_loader)}, Batch Validation Loss: {batch_val_loss:.4f}")
+            mean_iou = np.mean(ious)
+            mean_dice = np.mean(dices)
+
+            print(f"Mean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
+            wandb.log({"Mean IoU": mean_iou, "Mean Dice": mean_dice})
 
             avg_val_loss = val_loss / len(self.val_loader)
 
@@ -422,16 +436,6 @@ class TrailSegmentationFlow(FlowSpec):
 
                 with open(os.path.join(model_dir, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
                     yaml.dump(wandb_run_info, f)
-
-                # # Save Metaflow flow information
-                # metaflow_info = {
-                #     "flow_id": current.flow_id,
-                #     "run_id": current.run_id,
-                #     "step_name": current.step_name,
-                #     "task_id": current.task_id
-                # }
-                # with open(os.path.join(model_dir, f"metaflow_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
-                #     yaml.dump(metaflow_info, f)
 
             # Early stopping
             early_stopping(avg_val_loss)
