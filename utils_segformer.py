@@ -184,6 +184,7 @@ def calculate_metrics(predictions, targets, threshold=0.5):
     """
     predictions = (predictions > threshold).float()
     targets = targets.float()
+    print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
 
     intersection = (predictions * targets).sum(dim=(1, 2))
     union = predictions.sum(dim=(1, 2)) + targets.sum(dim=(1, 2)) - intersection

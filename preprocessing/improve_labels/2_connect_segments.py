@@ -105,6 +105,7 @@ def connect_segments(
 
     # Calculate median length for classification
     threshold_length = np.percentile(gdf['length'], 70)
+    threshold_length = 5
     print('Threshold trail length: ', threshold_length)
 
     for idx, row in gdf.iterrows():
@@ -279,7 +280,7 @@ def process_file(centerline_file, centerline_folder, raster_folder, output_folde
         print('Starting connect_segment')
         simplified_gdf = connect_segments(gdf, raster_file, connection_threshold=threshold_distance,
                                           tolerance=5, high_cost_factor=1.5,
-                                          low_prob_threshold=3, long_trail_check_points=10,
+                                          low_prob_threshold=5, long_trail_check_points=10,
                                           long_trail_max_connections=5,
                                           short_trail_check_points=1, short_trail_max_connections=1)
 
@@ -335,7 +336,7 @@ def main():
     output_folder = '/home/irina/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm/connected_segment'
 
     # Process files in parallel with 4 workers
-    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=1)
+    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, max_workers=32)
 
 if __name__ == "__main__":
     main()

@@ -142,8 +142,8 @@ class TrailSegmentationFlow(FlowSpec):
         """
         print("Saving image-label pairs and performing additional checks...")
 
-        validate_data(self.train_loader)
-        validate_data(self.val_loader)
+        # validate_data(self.train_loader)
+        # validate_data(self.val_loader)
 
         # Initialize lists to hold statistics and class imbalance data
         self.image_statistics = []
@@ -264,11 +264,11 @@ class TrailSegmentationFlow(FlowSpec):
         self.model.to(device)
 
         optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate, weight_decay=1e-4)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=1,
-        #                                                  threshold=0.0001, cooldown=1)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=1,
+                                                         threshold=0.0001, cooldown=1)
 
-        class_weights = compute_class_weights(self.train_loader, self.num_classes)
+        class_weights = compute_class_weights(self.train_loader, 1)     ###### number of classes
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=class_weights.to(device))
 
         # # pos_weight for handling class imbalance
@@ -364,7 +364,7 @@ class TrailSegmentationFlow(FlowSpec):
                 })
 
             print(f"Saved and logged validation predictions to {output_dir}")
-            ious, dices = [], []
+            # ious, dices = [], []
             with torch.no_grad():
                 for step, (val_images, val_masks) in enumerate(self.val_loader):
                     val_images, val_masks = val_images.to(device), val_masks.squeeze(1).to(device)
@@ -373,9 +373,9 @@ class TrailSegmentationFlow(FlowSpec):
                     val_outputs = self.model(pixel_values=val_images)
                     preds = torch.sigmoid(val_outputs.logits).squeeze(1)
 
-                    iou, dice = calculate_metrics(preds, val_masks)
-                    ious.append(iou)
-                    dices.append(dice)
+                    # iou, dice = calculate_metrics(preds, val_masks)
+                    # ious.append(iou)
+                    # dices.append(dice)
 
                     # Compute the validation loss for this batch
                     batch_val_loss = compute_loss(val_outputs, val_masks).item()
@@ -383,11 +383,11 @@ class TrailSegmentationFlow(FlowSpec):
                     # Accumulate the validation loss for this epoch
                     val_loss += batch_val_loss
 
-            mean_iou = np.mean(ious)
-            mean_dice = np.mean(dices)
-
-            print(f"Mean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
-            wandb.log({"Mean IoU": mean_iou, "Mean Dice": mean_dice})
+            # mean_iou = np.mean(ious)
+            # mean_dice = np.mean(dices)
+            #
+            # print(f"Mean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
+            # wandb.log({"Mean IoU": mean_iou, "Mean Dice": mean_dice})
 
             avg_val_loss = val_loss / len(self.val_loader)
 

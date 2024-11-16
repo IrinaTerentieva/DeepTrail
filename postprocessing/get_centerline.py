@@ -613,7 +613,8 @@ def process_tif_files(input_path, init_threshold=20, min_distance = 10, len_thre
 if __name__ == "__main__":
     # input =  '/media/irro/All/HumanFootprint/DATA/Products/Unet/LiDea/LiDea_Tiles'
     # input =  '/media/irro/All/HumanFootprint/DATA/Test_Models/PA2-W2(West)-SouthSikanniRoad-SiteB_ndtm_Human_lesstrails_DTM10_512_byCNN_7ep.tif'
-    input =  '/media/irina/Irina/HumanFootprint/DATA/Products/Unet/Kirby/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif'
+    # input =  '/media/irina/Irina/HumanFootprint/DATA/Products/Unet/Kirby/DTM10cm/DTM_10cm_binning_488_6131_496_6137_CNNover50e_256_200.tif'
+    input = '/home/irina/HumanFootprint/DATA/TrainingCNN/UNet_patches1024_nDTM10cm'
 
     initial_threshold = 20
     min_distance = 3
