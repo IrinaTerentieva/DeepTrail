@@ -125,9 +125,9 @@ class TrailSegmentationFlow(FlowSpec):
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4,
-                                       pin_memory=True)
-        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4,
+        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=32,
+                                       pin_memory=True, persistent_workers=True)
+        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=32,
                                      pin_memory=True)
 
 
@@ -242,6 +242,9 @@ class TrailSegmentationFlow(FlowSpec):
         """
         torch.cuda.empty_cache()
 
+        import gc
+        gc.collect()
+
         # ** Ensure WandB is initialized ** #
         if not wandb.run:
             run_name = (
@@ -342,7 +345,7 @@ class TrailSegmentationFlow(FlowSpec):
                 val_predicted = torch.sigmoid(val_outputs.logits).cpu().numpy()
 
             # Define the output directory for saving images
-            output_dir = os.path.join(self.model_dir, 'predictions')
+            output_dir = os.path.join(self.model_dir, 'predictions_connected1024_nDTM')
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             torch.cuda.empty_cache()

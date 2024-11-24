@@ -55,7 +55,7 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         full_prediction = accumulation / np.maximum(count_array, 1)
 
         # Save output
-        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_prediction.tif'
+        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_preds.tif'
         output_path = os.path.join(output_dir, output_filename)
         with rasterio.open(
                 output_path,
