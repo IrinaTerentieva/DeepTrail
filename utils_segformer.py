@@ -32,7 +32,7 @@ class TrailsDataset(Dataset):
         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
     """
 
-    def __init__(self, data_dir, threshold=20, min_area=400, transform=None):
+    def __init__(self, data_dir, threshold=0, min_area=400, transform=None):
         self.data_dir = data_dir
         self.transform = transform
         self.threshold = threshold  # Default threshold for binarizing the mask
