@@ -32,7 +32,7 @@ class UNetPredictionFlow(FlowSpec):
     - Saves output as a GeoTIFF with improved efficiency by batching predictions.
     """
 
-    environment = 'hpc'
+    environment = 'local'
     username = 'irina.terenteva'
     verbose = Parameter('verbose', default=False, help="Set to True to print debugging information like shapes.")
 
@@ -70,10 +70,10 @@ class UNetPredictionFlow(FlowSpec):
 
         # self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
         # self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LideaSouth_nDTM_2022_30cm.tif'
-        # self.input_image_path = '/media/irro/All/LineFootprint/DATA/raw/nDTM/Surmont_nDTM_2022_50cm.tif'
+        self.input_image_path = '/media/irina/My Book/Recovery/DATA/raw/nDTM/Lidea2_2024_25PPm_ncdtm_50cm.tif'
         # self.input_image_path = '/media/irro/All/HumanFootprint/DATA/nDTM/WAranch_ndtm/jul10_L1_WAlranch_ndtm_merged.tif'
         # self.input_image_path = '/media/irina/My Book/Blueberry/3_LiDAR_derivatives/PA2-W2(West)-SouthSikanniRoad-SiteB_ndtm.tif'
-        self.input_image_path = '/home/irina.terenteva/HumanFootprint/DATA/DTM/PA2-W2(West)-SouthSikanniRoad-SiteA_ndtm.tif'
+        # self.input_image_path = '/media/irina/My Book/Recovery/DATA/temp/temp/test30cm.tif'
 
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
