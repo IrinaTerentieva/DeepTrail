@@ -18,7 +18,6 @@ from custom_unet import custom_unet
 from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics, sliding_window_prediction_tf, save_predictions_tf
 from rasterio.windows import Window
 
-# # Suppress TensorFlow and CUDA logs
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disables GPU usage
