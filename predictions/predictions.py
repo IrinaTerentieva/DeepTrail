@@ -67,12 +67,22 @@ class UNetPredictionFlow(FlowSpec):
         # Ensure proper formatting of paths based on config
         self.model_path = os.path.join(self.base_dir(), self.config['prediction_params']['model_path'])
 
-        # self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LiDea2_nDTM_2023_50cm_v2.tif'
+        self.input_image_path = self.config['prediction_params']['test_image_path']
+
+
         # self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LideaSouth_nDTM_2022_30cm.tif'
-        self.input_image_path = '/media/irina/My Book/Recovery/DATA/raw/nDTM/Lidea2_2024_25PPm_ncdtm_50cm.tif'
+        # self.input_image_path = '/media/irina/My Book/Recovery/DATA/raw/nDTM/Lidea2_2024_25PPm_ncdtm_50cm.tif'
         # self.input_image_path = '/media/irro/All/HumanFootprint/DATA/nDTM/WAranch_ndtm/jul10_L1_WAlranch_ndtm_merged.tif'
         # self.input_image_path = '/media/irina/My Book/Blueberry/3_LiDAR_derivatives/PA2-W2(West)-SouthSikanniRoad-SiteB_ndtm.tif'
-        # self.input_image_path = '/media/irina/My Book/Recovery/DATA/temp/temp/test30cm.tif'
+
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/GrizzlyCreekSite_ncdtm_PD5.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA2-W2(West)-SouthSikanniRoad_ncdtm_PD300.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA1-PinkMtnRanchRestored_ncdtm_PD300.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA2-E1(East)-AtticCreekRoadSite_ncdtm_PD5.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA2-E2(East)-BeattonRiver-SiteB_ncdtm_PD5.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA2-E2(East)-BeattonRiver-SiteA_ncdtm_PD5.tif'
+        # self.input_image_path = '/media/irina/My Book1/Blueberry/DEMs/PA2-W2(West)-RestoredWellpadAccess_ncdtm_PD5.tif'
+
 
         self.output_dir = os.path.join(self.base_dir(), self.config['prediction_params']['output_dir'])
         self.patch_size = self.config['prediction_params']['patch_size']
@@ -137,6 +147,9 @@ class UNetPredictionFlow(FlowSpec):
             reference_image_path=self.input_image_path,  # Pass the same image as reference for metadata
             inverted = self.invert_image
         )
+
+        del self.model
+        gc.collect()
 
         self.next(self.end)
 

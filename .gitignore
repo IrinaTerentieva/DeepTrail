@@ -53,6 +53,7 @@ wandb/
 *.dbf
 *.prj
 *.shx
+*.txt
 
 # Ignore raster data files
 *.asc

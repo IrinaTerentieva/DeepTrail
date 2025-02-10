@@ -245,6 +245,12 @@ def sliding_window_prediction_tf(image_path, model, patch_size, stride, output_p
                     if inverted:
                         patch = -patch
 
+                    # Skip patch if min, mean, or max is 0 or NaN
+                    patch_mean, patch_max = np.nanmean(patch), np.nanmax(patch)
+                    if np.isnan(patch_mean) or np.isnan(patch_max) or patch_max == 0:
+                        # print(f"Skipping patch at ({i}, {j}) due to NO DATA.")
+                        continue
+
                     # Normalize patch
                     patch = normalize_image(patch)
                     patch = patch.reshape(1, patch_size, patch_size, 1).astype(np.float32)

@@ -24,6 +24,9 @@ Parameters:
 def rasterize_lines_to_match_original(geopkg_path, original_raster_path, output_raster_path, buffer_size_meters=1.0):
     # Read the GeoPackage file
     gdf = gpd.read_file(geopkg_path)
+    # print(gdf.connection_type)
+
+    gdf = gdf[(gdf.connection_type == 'long-long') | (gdf.connection_type == 'trail')]
 
     # Filter out invalid or empty geometries
     gdf = gdf[gdf.is_valid & ~gdf.is_empty]
@@ -79,7 +82,7 @@ def process_geopackages_and_rasters(geopkg_folder, original_raster_folder, outpu
                 print(f"Processing: {geopkg_path} with {original_raster_file}")
 
                 # Set the output .tif file path
-                output_tif = os.path.join(output_folder, f"{base_name}_connected_rasterized.tif")
+                output_tif = os.path.join(output_folder, f"{base_name}.tif")
 
                 # Rasterize the GeoPackage to match the original raster
                 rasterize_lines_to_match_original(geopkg_path, original_raster_file, output_tif, buffer_size_meters)
