@@ -9,10 +9,10 @@ sys.path.append('/home/irina.terenteva/HumanFootprint/Models')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import yaml
 import warnings
-import numpy as np
-import rasterio
-# import tensorflow as tf
-from tqdm import tqdm
+# import numpy as np
+# import rasterio
+# # import tensorflow as tf
+# from tqdm import tqdm
 from metaflow import FlowSpec, step, Parameter
 from custom_unet import custom_unet
 from utils import adjust_window, pad_to_shape, normalize_image, calculate_statistics, sliding_window_prediction_tf, save_predictions_tf
@@ -68,7 +68,6 @@ class UNetPredictionFlow(FlowSpec):
         self.model_path = os.path.join(self.base_dir(), self.config['prediction_params']['model_path'])
 
         self.input_image_path = self.config['prediction_params']['test_image_path']
-
 
         # self.input_image_path = '/media/irro/All/RecoveryStatus/DATA/raw/nDTM/LideaSouth_nDTM_2022_30cm.tif'
         # self.input_image_path = '/media/irina/My Book/Recovery/DATA/raw/nDTM/Lidea2_2024_25PPm_ncdtm_50cm.tif'
@@ -134,7 +133,7 @@ class UNetPredictionFlow(FlowSpec):
         # Extract the base name of the input image
         base_name = os.path.splitext(os.path.basename(self.input_image_path))[0]
         model_name = os.path.basename(self.config['prediction_params']['model_path'])[:-3]
-        output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}.tif")
+        output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}_preds.tif")
         print('Save to output path: ', output_path, flush=True)
 
         # Run sliding window prediction and save incrementally

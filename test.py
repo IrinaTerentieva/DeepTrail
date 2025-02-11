@@ -1,33 +1,26 @@
-import geopandas as gpd
+import sys
+import tensorflow as tf
+import torch
 import numpy as np
 
+print("Python Version:", sys.version)
+print("NumPy Version:", np.__version__)
 
-def process_geopackage(file_path):
-    try:
-        # Read the GeoPackage file with geopandas
-        gdf = gpd.read_file(file_path)
+# Check TensorFlow
+try:
+    print("\nTensorFlow Version:", tf.__version__)
+    print("TensorFlow Built with CUDA:", tf.test.is_built_with_cuda())
+    print("TensorFlow Built with cuDNN:", tf.test.is_built_with_gpu_support())
+    print("Available GPUs:", tf.config.list_physical_devices('GPU'))
+except ImportError:
+    print("TensorFlow not installed")
 
-        # Find all non-geometry columns
-        non_geometry_columns = gdf.columns.difference([gdf.geometry.name])
-
-        # Identify the last non-geometry column
-        last_column = non_geometry_columns[-1]
-
-        # Replace 'None' values with 0s, round any numeric values, and convert to integers
-        gdf[last_column] = gdf[last_column].replace([None, 'None'], 0)
-        gdf[last_column] = gdf[last_column].apply(lambda x: np.round(float(x)) if isinstance(x, (str, float)) else x)
-        gdf[last_column] = gdf[last_column].astype(int)
-
-        # Print the modified GeoDataFrame
-        print(gdf.head())
-
-        # Save back to file if needed
-        gdf.to_file(file_path, driver="GPKG", index=False)
-
-    except Exception as e:
-        print(f"Error processing {file_path}: {e}")
-
-
-# Example usage
-file_path = "/media/irro/Data/2022/RECCAP-2/russia_test.gpkg"
-process_geopackage(file_path)
+# Check PyTorch
+try:
+    print("\nPyTorch Version:", torch.__version__)
+    print("PyTorch CUDA Available:", torch.cuda.is_available())
+    print("PyTorch GPU Count:", torch.cuda.device_count())
+    if torch.cuda.is_available():
+        print("PyTorch GPU Name:", torch.cuda.get_device_name(0))
+except ImportError:
+    print("PyTorch not installed")
