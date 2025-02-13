@@ -25,6 +25,11 @@ import rasterio
 import tensorflow as tf
 from skimage.measure import label
 from skimage.morphology import remove_small_objects
+import numpy as np
+import rasterio
+from rasterio.windows import Window
+import torch
+from tqdm import tqdm
 
 class TrailsDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, image_list, mask_list, batch_size=32, image_size=(512, 512), shuffle=True, augment=False):
@@ -127,9 +132,6 @@ def iou(y_true, y_pred, smooth=1e-6):
 def iou_thresholded(y_true, y_pred, threshold=0.5, smooth=1e-6):
     y_pred = tf.cast(y_pred > threshold, dtype=tf.float32)
     return iou(y_true, y_pred, smooth)
-
-
-import matplotlib.pyplot as plt
 
 
 def plot_predictions(images, ground_truths, predictions, num=5):
@@ -252,7 +254,8 @@ def sliding_window_prediction_tf(image_path, model, patch_size, stride, output_p
                         continue
 
                     # Normalize patch
-                    patch = normalize_image(patch)
+                    # patch = normalize_image(patch)
+                    patch = normalize_nDTM(patch)
                     patch = patch.reshape(1, patch_size, patch_size, 1).astype(np.float32)
 
                     # Perform prediction
@@ -267,17 +270,6 @@ def sliding_window_prediction_tf(image_path, model, patch_size, stride, output_p
 
     print(f"Predictions saved incrementally to {output_path}")
 
-
-import numpy as np
-import rasterio
-from rasterio.windows import Window
-from tqdm import tqdm
-import torch
-import torch
-import numpy as np
-import rasterio
-from rasterio.windows import Window
-from tqdm import tqdm
 
 def sliding_window_prediction_torch(image_path, model, patch_size, stride, output_path, reference_image_path, scale_factor=100, inverted=False, device="cuda"):
     """
@@ -349,110 +341,15 @@ def normalize_nDTM(image):
     - Clip values to [-1, 1] and normalize.
     """
 
-    # Clip values to [-1, 1]
-    image = np.clip(image, -0.1, 0.1)
+    min_positive_val = -1
+    max_val = 1
 
-    min_positive_val = -0.1
-    max_val = 0.1
+    # Clip values to [-1, 1]
+    image = np.clip(image, min_positive_val, max_val)
 
     # Normalize to [0, 1]
     image = (image - min_positive_val) / (max_val - min_positive_val)
     return image
-
-import torch
-import numpy as np
-import rasterio
-from rasterio.windows import Window
-from tqdm import tqdm
-
-def sliding_window_prediction_torch(image_path, model, patch_size, stride, output_path, reference_image_path, scale_factor=100, inverted=False, device="cuda"):
-    """
-    Perform sliding window prediction using PyTorch with weighted averaging for seamless blending.
-
-    Args:
-        image_path (str): Path to the input image.
-        model (torch.nn.Module): The trained PyTorch model for prediction.
-        patch_size (int): Size of the patch for the sliding window.
-        stride (int): Stride for the sliding window.
-        output_path (str): Path where the GeoTIFF should be saved.
-        reference_image_path (str): Path to the reference image (for metadata).
-        scale_factor (int): Scaling factor to convert prediction to uint16 for saving.
-        inverted (bool): Whether to invert the input image.
-        device (str): Device to run the model on ("cuda" for GPU, "cpu" otherwise).
-    """
-
-    # Move model to the correct device (GPU or CPU)
-    model.to(device)
-    model.eval()  # Set model to evaluation mode
-
-    # Open the reference image to get metadata
-    with rasterio.open(reference_image_path) as src:
-        height, width = src.shape
-        profile = src.profile.copy()
-        profile.update(dtype=rasterio.uint16, compress='LZW', nodata=0)  # Set nodata value to 0
-
-        # Initialize arrays to accumulate predictions and weights
-        prediction_map = np.zeros((height, width), dtype=np.float32)
-        weight_map = np.zeros((height, width), dtype=np.float32)
-
-        # Create a weight matrix for seamless blending
-        weight_matrix = np.ones((patch_size, patch_size), dtype=np.float32)
-        overlap = patch_size - stride
-        if overlap > 0:
-            fade = np.linspace(0.2, 1, num=overlap)  # Gradual weight increase at edges
-            weight_matrix[:overlap, :] *= fade[:, np.newaxis]  # Top fade
-            weight_matrix[-overlap:, :] *= fade[::-1, np.newaxis]  # Bottom fade
-            weight_matrix[:, :overlap] *= fade[np.newaxis, :]  # Left fade
-            weight_matrix[:, -overlap:] *= fade[np.newaxis, ::-1]  # Right fade
-
-        print("Starting sliding window prediction...")
-
-        # Disable gradient calculations for inference
-        with torch.no_grad():
-            for i in tqdm(range(0, height - patch_size + 1, stride), desc="Sliding Window Rows"):
-                for j in tqdm(range(0, width - patch_size + 1, stride), desc="Sliding Window Cols", leave=False):
-                    # Extract patch
-                    patch = src.read(window=Window(j, i, patch_size, patch_size)).astype(np.float32)
-                    nodata_value = src.nodata
-                    if nodata_value is not None:
-                        patch[patch == nodata_value] = 0
-
-                    if inverted:
-                        patch = -patch
-
-                    # Skip patch if min, mean, or max is 0 or NaN
-                    patch_mean, patch_max = np.nanmean(patch), np.nanmax(patch)
-                    if np.isnan(patch_mean) or np.isnan(patch_max) or patch_max == 0:
-                        continue
-
-                    # Normalize patch
-                    patch = normalize_image(patch)  # Ensure `normalize_image` is implemented for PyTorch
-                    patch = torch.tensor(patch, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)  # Add batch and channel dim
-
-                    # Perform prediction
-                    predictions = model(patch)  # Forward pass
-                    prob_values = predictions.squeeze().cpu().numpy()  # Convert back to numpy
-
-                    # Convert probabilities to uint16
-                    pred_patch = (prob_values * scale_factor).astype(np.float32)
-
-                    # Accumulate weighted predictions
-                    prediction_map[i:i + patch_size, j:j + patch_size] += pred_patch * weight_matrix
-                    weight_map[i:i + patch_size, j:j + patch_size] += weight_matrix
-
-        # Normalize final prediction by weight sum
-        final_prediction = np.divide(prediction_map, weight_map, where=weight_map > 0)
-
-        # Convert to uint16 for saving
-        final_prediction = np.clip(final_prediction, 0, 65535).astype(np.uint16)
-
-        # Save the final blended prediction
-        with rasterio.open(output_path, 'w', **profile) as dst:
-            dst.write(final_prediction, 1)
-
-    print(f"Predictions saved to {output_path}")
-
-
 
 def save_predictions_tf(full_prediction, output_path, reference_image_path, scale_factor=100):
     """

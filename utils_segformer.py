@@ -147,10 +147,11 @@ def normalize_nDTM(image):
     image = np.nan_to_num(image, nan=0.0)
 
     # Clip negative values to -10
-    image = np.clip(image, -1, 1)
 
-    min_positive_val = -1
-    max_val = 1
+    min_positive_val = -0.2
+    max_val = 0.2
+
+    image = np.clip(image, min_positive_val, max_val)
 
     # Normalize to [0, 1] using the next positive value
     image = (image - min_positive_val) / (max_val - min_positive_val)
@@ -261,6 +262,23 @@ def build_augmentations(config):
     return A.Compose(augmentations)
 
 # ------------------- Predictions -------------------
+def normalize_nDTM(image):
+    """
+    Normalize image to the [0, 1] range.
+    - Replace all negative values with 0.
+    - Clip values to [-1, 1] and normalize.
+    """
+
+    min_positive_val = -0.5
+    max_val = 0.5
+
+    # Clip values to [-1, 1]
+    image = np.clip(image, min_positive_val, max_val)
+
+    # Normalize to [0, 1]
+    image = (image - min_positive_val) / (max_val - min_positive_val)
+    return image
+
 
 def sliding_window_prediction(image_path, model, patch_size, stride, max_height):
     """
@@ -287,9 +305,10 @@ def sliding_window_prediction(image_path, model, patch_size, stride, max_height)
         if nodata_value is not None:
             image[image == nodata_value] = 0
 
-        image = np.clip(image, 0, max_height)
-        image = image / max_height
+        # image = np.clip(image, 0, max_height)
+        # image = image / max_height
 
+        image = normalize_nDTM(image)
         height, width = image.shape
 
         # Initialize accumulation and count arrays

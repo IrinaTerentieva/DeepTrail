@@ -133,7 +133,7 @@ class UNetPredictionFlow(FlowSpec):
         # Extract the base name of the input image
         base_name = os.path.splitext(os.path.basename(self.input_image_path))[0]
         model_name = os.path.basename(self.config['prediction_params']['model_path'])[:-3]
-        output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}_preds.tif")
+        output_path = os.path.join(self.output_dir, f"{base_name}_{model_name}_preds_v2.4.tif")
         print('Save to output path: ', output_path, flush=True)
 
         # Run sliding window prediction and save incrementally
