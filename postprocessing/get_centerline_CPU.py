@@ -719,4 +719,4 @@ def process_tif_files_parallel(input_path, threshold=20, min_distance=10, len_th
 
 if __name__ == "__main__":
     input_path = "/home/irina/HumanFootprint/DATA/Test_Models/segformer"
-    process_tif_files_parallel(input_path, threshold=0.1, min_distance=3, len_threshold=3, num_workers=16)
+    process_tif_files_parallel(input_path, threshold=0.1, min_distance=1, len_threshold=1, num_workers=16)

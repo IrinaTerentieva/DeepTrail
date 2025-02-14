@@ -11,46 +11,6 @@ import pandas as pd
 from skimage.graph import route_through_array
 from scipy.spatial import cKDTree
 import concurrent.futures
-from skimage.measure import block_reduce
-from rasterio.enums import Resampling
-
-
-def pad_cost_map(cost_map_np, pad_width=5, pad_value=1000):
-    """
-    Pad the cost map with a border of pad_width cells, each having the value pad_value.
-    """
-    return np.pad(cost_map_np, pad_width, mode='constant', constant_values=pad_value)
-
-
-# --- Alternative Downsampling with Rasterio ---
-def rasterio_downsample(src, scale=5):
-    """
-    Downsample a raster using Rasterio's built-in resampling (e.g. average).
-
-    Parameters:
-      src : rasterio.io.DatasetReader
-          The opened rasterio dataset.
-      scale : int
-          The factor by which to downsample (e.g., 5 means 5x5 pixels become one).
-
-    Returns:
-      data : np.ndarray
-          The downsampled raster data (as a NumPy array).
-      new_transform : affine.Affine
-          The adjusted affine transform.
-    """
-    new_height = src.height // scale
-    new_width = src.width // scale
-    data = src.read(
-        out_shape=(src.count, new_height, new_width),
-        resampling=Resampling.average
-    )
-    # Calculate the new transform (each pixel now covers a larger area)
-    new_transform = src.transform * src.transform.scale(
-        (src.width / new_width),
-        (src.height / new_height)
-    )
-    return data, new_transform
 
 
 ### ========== COORDINATE TRANSFORM ==========
@@ -115,10 +75,8 @@ def transform_trail_to_raster(gdf, transform, raster_shape, raster_crs, verbose=
 ### ========== PLOTTING ==========
 def plot_maps(probability_map, cost_map, gdf, transform, start_x=0, start_y=0, window_size=500, verbose=False):
     """Plots the probability and cost maps with the trail network in raster space."""
-    print(
-        f"\n🔍 GPU Probability Map: Min={cp.nanmin(probability_map):.4f}, Mean={cp.nanmean(probability_map):.4f}, Max={cp.nanmax(probability_map):.4f}")
-    print(
-        f"🔍 GPU Cost Map: Min={cp.nanmin(cost_map):.4f}, Mean={cp.nanmean(cost_map):.4f}, Max={cp.nanmax(cost_map):.4f}")
+    print(f"\n🔍 GPU Probability Map: Min={cp.nanmin(probability_map):.4f}, Mean={cp.nanmean(probability_map):.4f}, Max={cp.nanmax(probability_map):.4f}")
+    print(f"🔍 GPU Cost Map: Min={cp.nanmin(cost_map):.4f}, Mean={cp.nanmean(cost_map):.4f}, Max={cp.nanmax(cost_map):.4f}")
 
     # Ensure the window does not exceed the raster size
     x_max = min(start_x + window_size, probability_map.shape[1])
@@ -172,56 +130,21 @@ def classify_trail_length(length, threshold_length):
     return 'long_trail' if length >= threshold_length else 'short_trail'
 
 
-def aggregate_block_10th_percentile(block, **kwargs):
-    # Compute the 10th percentile of the block values
-    return np.percentile(block, 10)
-
-
-def coarse_raster_aggregation(cost_map_np, block_size=(5, 5)):
-    """
-    Coarsens the raster by aggregating each block_size pixels using the 10th percentile.
-
-    Parameters:
-      cost_map_np : np.ndarray or cupy.ndarray
-          The high-resolution cost map.
-      block_size : tuple
-          The block size for aggregation (default is (5, 5)).
-
-    Returns:
-      np.ndarray
-          The aggregated, coarser cost map.
-    """
-    # If the input is a CuPy array, convert it explicitly to NumPy.
-    if hasattr(cost_map_np, "get"):
-        cost_map_np = cost_map_np.get()
-    return block_reduce(cost_map_np, block_size=block_size, func=aggregate_block_10th_percentile)
-
-
+### ========== PARALLEL ROUTE COMPUTATION ==========
 def compute_route(args):
     """
     Compute the route between two raster indices.
     Expects args as a tuple: (cost_map_np, transform, start_raster_idx, end_raster_idx)
     """
     cost_map_np, transform, start_raster_idx, end_raster_idx = args
-    try:
-        indices_path, _ = route_through_array(cost_map_np, start_raster_idx, end_raster_idx, fully_connected=True)
-    except ValueError as e:
-        # Log the error if needed and return None to indicate no valid path was found
-        # For example: print(f"⚠️ No valid path from {start_raster_idx} to {end_raster_idx}: {e}")
-        return None
-
-    # Compute the cost along the found path
+    indices_path, _ = route_through_array(cost_map_np, start_raster_idx, end_raster_idx, fully_connected=True)
     path_costs = [cost_map_np[row, col] for row, col in indices_path]
     median_cost = np.median(np.array(path_costs))
     step_cost = np.mean(np.array(path_costs))
-
-    # Transform raster indices back to spatial coordinates
     path_coords = [transform * (col, row) for row, col in indices_path]
     if len(path_coords) <= 1:
         return None  # No valid path
-
     return (LineString(path_coords), median_cost, step_cost, LineString(path_coords).length)
-
 
 # Move the lambda out as a global function
 def compute_route_from_task(task):
@@ -297,12 +220,12 @@ def process_trails_parallel(indices, check_points, max_connections, all_coords, 
             tasks.append((cost_map_np, transform, start_raster_idx, end_raster_idx, i, nearest_idx))
             connections_count += 1
 
-    BATCH_SIZE = 100
+    BATCH_SIZE = 20
     results = []
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for i in range(0, len(tasks), BATCH_SIZE):
             batch = tasks[i:i + BATCH_SIZE]
-            for result in executor.map(compute_route_from_task, batch, chunksize=20):
+            for result in executor.map(compute_route_from_task, batch, chunksize=4):
                 results.append(result)
 
     # Process the results and add valid connections
@@ -319,12 +242,9 @@ def process_trails_parallel(indices, check_points, max_connections, all_coords, 
             'length': length,
             'connection_type': (
                 'long-long' if (classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length) == 'long_trail'
-                                and classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'],
-                                                          threshold_length) == 'long_trail')
-                else 'short-short' if (
-                            classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length) == 'short_trail'
-                            and classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'],
-                                                      threshold_length) == 'short_trail')
+                                and classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'], threshold_length) == 'long_trail')
+                else 'short-short' if (classify_trail_length(gdf.loc[line_ids[i], 'length'], threshold_length) == 'short_trail'
+                                       and classify_trail_length(gdf.loc[line_ids[nearest_idx], 'length'], threshold_length) == 'short_trail')
                 else 'short-long'
             )
         })
@@ -335,8 +255,8 @@ def process_trails_parallel(indices, check_points, max_connections, all_coords, 
 
 ### ========== GPU-BASED CONNECTIVITY PROCESS ==========
 def connect_segments(
-        gdf, raster_path, connection_threshold=200, high_cost_factor=2, low_prob_threshold=0.05,
-        long_trail_check_points=50, long_trail_max_connections=10, short_trail_check_points=5,
+        gdf, raster_path, connection_threshold=200, high_cost_factor=1.5, low_prob_threshold=0.05,
+        long_trail_check_points=10, long_trail_max_connections=3, short_trail_check_points=5,
         short_trail_max_connections=1, verbose=False
 ):
     """
@@ -350,34 +270,18 @@ def connect_segments(
     if verbose:
         print(f"✅ Initial trails connected. {len(gdf)} trails remaining.")
 
-    # Load probability map and transform using Rasterio's resampling downsampling method.
+    # Load probability map and transform
     with rasterio.open(raster_path) as src:
-        # Option: downsample using Rasterio. Here we use scale factor 5.
-        data, new_transform = rasterio_downsample(src, scale=5)
-        prob_map = cp.asarray(data[0])  # use the first band
-        transform = new_transform
+        probability_map = cp.asarray(src.read(1))
+        transform = src.transform
 
     if verbose:
-        print(
-            f"📊 Probability Map Loaded: Shape={prob_map.shape}, Min={cp.nanmin(prob_map):.4f}, Max={cp.nanmax(prob_map):.4f}")
+        print(f"📊 Probability Map Loaded: Shape={probability_map.shape}, Min={cp.nanmin(probability_map):.4f}, Max={cp.nanmax(probability_map):.4f}")
 
-    cost_map = cp.where(
-        (prob_map > -0.2) & (prob_map <= 0),
-        0.1,
-        cp.where(
-            (prob_map >= 0.3) | (prob_map <= -0.3),
-            10,
-            1 + cp.abs(prob_map)
-        )
-    )
-
-    # Compute cost map on GPU:
-    # cost_map = cp.where(cost_map > 2, cost_map * high_cost_factor, cost_map)
-    # cost_map[probability_map < low_prob_threshold] = 0  # High cost for low probability
-
-    # Optional: Plot the maps for debugging.
-    plot_maps(prob_map, cost_map, gdf, transform, start_x=100, start_y=100, window_size=300, verbose=False)
-
+    # Compute cost map on GPU
+    cost_map = cp.asarray(1 - probability_map, dtype=cp.float32)
+    cost_map = cp.where(cost_map > 0.5, cost_map * high_cost_factor, cost_map)
+    cost_map[probability_map < low_prob_threshold] = 100  # High cost for low probability
     if verbose:
         print(f"📊 Cost Map Created: Min={cp.nanmin(cost_map):.4f}, Max={cp.nanmax(cost_map):.4f}")
 
@@ -417,14 +321,13 @@ def connect_segments(
         print(f"✅ CuSpatial GeoSeries created with {len(points_gs)} points.")
 
     # Process long trails first
-    long_trail_indices = [i for i, length in enumerate(gdf['length']) if
-                          classify_trail_length(length, 3) == 'long_trail']
+    long_trail_indices = [i for i, length in enumerate(gdf['length']) if classify_trail_length(length, 10) == 'long_trail']
     if verbose:
         print(f"🔹 Processing {len(long_trail_indices)} long trails...")
     long_connections, long_connection_data = process_trails_parallel(
         long_trail_indices, long_trail_check_points, long_trail_max_connections,
         all_coords, raster_indices, line_ids, gdf, cost_map, transform,
-        threshold_length=3, neighbor_radius=500, verbose=verbose
+        threshold_length=10, neighbor_radius=50, verbose=verbose
     )
 
     # (Optional) Process short trails here if needed...
@@ -465,14 +368,14 @@ def process_file(centerline_path, raster_file, output_folder, threshold_distance
         simplified_gdf = connect_segments(gdf, raster_file, connection_threshold=threshold_distance, verbose=verbose)
         print("🔹 Filtering out short trails...")
         simplified_gdf = simplified_gdf[simplified_gdf.geometry.length >= 1]
-        output_gpkg = os.path.join(output_folder, f"{base_name}_connected_25_2.gpkg")
+        output_gpkg = os.path.join(output_folder, f"{base_name}_connected.gpkg")
         simplified_gdf.to_file(output_gpkg, driver='GPKG')
         print(f"✅ Saved to {output_gpkg}")
     else:
         print(f"⚠️ Raster file not found for {centerline_path}")
 
 
-def process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, verbose=False):
+def process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=50, verbose=False):
     """
     Process files sequentially. Files are processed one-by-one.
     """
@@ -494,11 +397,7 @@ def process_files_in_folder(centerline_folder, raster_folder, output_folder, thr
         print(f"⚠️ Warning: No raster found for {len(missing_rasters)} centerline files: {missing_rasters}")
     for centerline_path, raster_path in matching_files:
         print(f"\n🔄 Processing: {centerline_path} with {raster_path}")
-        # For debugging purposes, hardcoded paths can be removed later.
-        # centerline_path = '/home/irina/HumanFootprint/DATA/Test_Models/segformer/centerline/test4_preds_segformer.gpkg'
-        # raster_path = "/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/ndtm/test4.tif"
         process_file(centerline_path, raster_path, output_folder, threshold_distance, verbose=verbose)
-        break
 
 
 ### ========== MAIN EXECUTION ==========
@@ -506,4 +405,4 @@ if __name__ == "__main__":
     centerline_folder = "/home/irina/HumanFootprint/DATA/Test_Models/segformer/centerline"
     raster_folder = "/home/irina/HumanFootprint/DATA/Test_Models/segformer"
     output_folder = "/home/irina/HumanFootprint/DATA/Test_Models/segformer/connected_segment"
-    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=200, verbose=True)
+    process_files_in_folder(centerline_folder, raster_folder, output_folder, threshold_distance=50, verbose=True)
