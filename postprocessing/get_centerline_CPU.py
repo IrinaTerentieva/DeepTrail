@@ -32,6 +32,8 @@ import math
 
 import math
 
+from sympy.codegen.ast import continue_
+
 
 def assign_line_direction(g: nx.Graph) -> nx.Graph:
     """
@@ -659,21 +661,20 @@ def save_network_as_geopackage(g, tif_path, len_threshold=2):
     try:
         with rasterio.open(tif_path) as src:
             transform, crs = src.transform, src.crs
-
-        # Convert network to GeoDataFrame
-        network_geojson = network_to_geojson(g, transform)
-        gdf = gpd.GeoDataFrame.from_features(network_geojson, crs=crs)
-        gdf['length'] = gdf.geometry.length
-        gdf = gdf[gdf['length'] > len_threshold]
-
         # Save results
         output_dir = os.path.join(os.path.dirname(tif_path), 'centerline')
         os.makedirs(output_dir, exist_ok=True)
 
         geopkg_path = os.path.join(output_dir, os.path.basename(tif_path).replace('.tif', '.gpkg'))
-        gdf.to_file(geopkg_path, driver='GPKG')
-
-        print(f'[INFO] Saved: {geopkg_path}')
+        if geopkg_path:
+            print('Already there')
+        else:
+            # Convert network to GeoDataFrame
+            network_geojson = network_to_geojson(g, transform)
+            gdf = gpd.GeoDataFrame.from_features(network_geojson, crs=crs)
+            gdf['length'] = gdf.geometry.length
+            gdf = gdf[gdf['length'] > len_threshold]
+            print(f'[INFO] Saved: {geopkg_path}')
 
     except Exception as e:
         print(f"[ERROR] Failed to save GeoPackage: {e}")
@@ -718,5 +719,5 @@ def process_tif_files_parallel(input_path, threshold=20, min_distance=10, len_th
 
 
 if __name__ == "__main__":
-    input_path = "/home/irina/HumanFootprint/DATA/Test_Models/segformer"
-    process_tif_files_parallel(input_path, threshold=0.1, min_distance=1, len_threshold=1, num_workers=16)
+    input_path = "/media/irina/My Book1/Conoco/DATA/Products/Trails/segformer/filtered_int"
+    process_tif_files_parallel(input_path, threshold=10, min_distance=1, len_threshold=1, num_workers=16)
