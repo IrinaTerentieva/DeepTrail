@@ -8,9 +8,9 @@ import random
 import scipy.ndimage as ndimage
 
 # Paths for the input vector (combined original/synthetic) and raster files
-vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/combined_original_synthetic.gpkg"
-raster_path = "/media/irina/My Book1/Conoco/DATA/temp/test.tif"
-output_tif = "/media/irina/My Book1/Conoco/DATA/temp/test_synthetic.tif"
+vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/LiDea_pilot_synthetic_trails.gpkg"
+raster_path = "file:///media/irina/My Book1/LiDea_Pilot/nDTM/LideaPilot_10cm_nDTM.tif"
+output_tif = raster_path.replace('tif', 'synth_trails.tif')
 
 # Load the combined vector file (it should have a "trail_id" column)
 gdf = gpd.read_file(vector_path)
