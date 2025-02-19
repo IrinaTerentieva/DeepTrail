@@ -6,11 +6,16 @@ import os
 from shapely.ops import unary_union
 import random
 import scipy.ndimage as ndimage
+import gc
+import tempfile
+
+# --- Options ---
+inverted = True  # If True, invert the raster before processing.
 
 # Paths for the input vector (combined original/synthetic) and raster files
 vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/LiDea_pilot_synthetic_trails.gpkg"
 raster_path = "file:///media/irina/My Book1/LiDea_Pilot/nDTM/LideaPilot_10cm_nDTM.tif"
-output_tif = raster_path.replace('tif', 'synth_trails.tif')
+output_tif = raster_path.replace('.tif', 'synth_trails.tif')
 
 # Load the combined vector file (it should have a "trail_id" column)
 gdf = gpd.read_file(vector_path)
@@ -24,8 +29,18 @@ with rasterio.open(raster_path) as src:
     # Compute pixel size (assuming square pixels)
     pixel_size = abs(transform.a)
 
-# Create a copy of the raster data to modify
-data_modified = data.copy()
+# If the inverted option is enabled, invert the raster.
+if inverted:
+    max_val = data.max()
+    data = max_val - data
+    print("[INFO] Raster has been inverted.")
+
+# Create a memory-mapped copy of the raster data to reduce RAM usage.
+temp_filename = os.path.join(tempfile.gettempdir(), "data_modified.dat")
+data_modified = np.memmap(temp_filename, dtype=np.float32, mode='w+', shape=data.shape)
+data_modified[:] = data[:]
+del data  # free the original data array
+gc.collect()
 
 # Prepare a list to hold label polygons (buffered trail areas)
 label_records = []
@@ -40,7 +55,7 @@ for tid in trail_ids:
     trail_geometry = trail_features.unary_union
 
     # Generate a random buffer (in pixels) between 3 and 6; convert to map units.
-    random_buffer_pixels = random.uniform(3, 6)
+    random_buffer_pixels = random.uniform(3, 7)
     buffer_distance = random_buffer_pixels * pixel_size
 
     # Buffer the merged trail geometry using the random buffer distance.
@@ -57,37 +72,53 @@ for tid in trail_ids:
     # Rasterize the buffered polygon to create a mask with the same shape as the raster.
     mask = rasterize(
         [(trail_buffer, 1)],
-        out_shape=data.shape,
+        out_shape=(profile['height'], profile['width']),
         transform=transform,
         fill=0,
         dtype=np.uint8
     )
 
-    # Create a smooth random subtraction surface:
-    # 1. Generate a random field over the entire raster with values between -0.05 and 0.1.
-    random_field = np.random.uniform(low=-0.01, high=0.15, size=data.shape)
-    # 2. Apply a Gaussian filter to smooth the random field (sigma=10 for smooth transitions).
-    smooth_subtraction = ndimage.gaussian_filter(random_field, sigma=5)
+    # Instead of processing the full raster, determine the bounding box of the mask.
+    rows, cols = np.where(mask == 1)
+    if len(rows) == 0 or len(cols) == 0:
+        # Skip if the mask is empty
+        continue
+    row_min, row_max = rows.min(), rows.max() + 1
+    col_min, col_max = cols.min(), cols.max() + 1
 
-    # Create a gradient mask inside the buffered trail:
-    # Compute the distance transform on the mask (distance of each pixel inside to the boundary)
-    distance_inside = ndimage.distance_transform_edt(mask)
-    max_distance = np.max(distance_inside) if np.max(distance_inside) > 0 else 1
-    # Normalize: pixels at the center (max distance) become 1; at the boundary, near 0.
-    gradient_mask = distance_inside / max_distance
+    # Crop the mask and define the working region
+    mask_crop = mask[row_min:row_max, col_min:col_max]
+    shape_crop = mask_crop.shape
 
-    # Combine the smooth subtraction surface with the gradient so that the center is burned more.
-    adjusted_subtraction = smooth_subtraction * gradient_mask
+    # Create a random field on just the cropped area
+    random_field_crop = np.random.uniform(low=-0.02, high=0.15, size=shape_crop)
+    # Smooth the random field with a Gaussian filter (sigma=5 for moderate smoothing)
+    smooth_subtraction_crop = ndimage.gaussian_filter(random_field_crop, sigma=5)
+    # Compute a distance transform on the cropped mask
+    distance_inside_crop = ndimage.distance_transform_edt(mask_crop)
+    max_distance = distance_inside_crop.max() if distance_inside_crop.max() > 0 else 1
+    # Create a gradient mask: center gets values near 1; boundaries near 0
+    gradient_mask_crop = distance_inside_crop / max_distance
+    # Multiply the smooth subtraction field by the gradient mask
+    adjusted_subtraction_crop = smooth_subtraction_crop * gradient_mask_crop
 
-    # Subtract the adjusted (modulated) surface from the raster values within the buffered area.
-    data_modified[mask == 1] = data_modified[mask == 1] - adjusted_subtraction[mask == 1]
+    # Update only the cropped portion of the memmap where mask is 1
+    region = (slice(row_min, row_max), slice(col_min, col_max))
+    # Subtract the adjusted subtraction values where mask_crop==1
+    data_modified_region = data_modified[region]
+    data_modified_region[mask_crop == 1] = data_modified_region[mask_crop == 1] - adjusted_subtraction_crop[mask_crop == 1]
+    data_modified[region] = data_modified_region  # update the memmap
 
-# Optionally, clip resulting values (e.g., to avoid negatives)
-# data_modified[data_modified < 0] = 0
+    # Clean up intermediate arrays and force garbage collection.
+    del mask, mask_crop, random_field_crop, smooth_subtraction_crop, distance_inside_crop, gradient_mask_crop, adjusted_subtraction_crop, data_modified_region
+    gc.collect()
+
+# Flush the memmap to ensure all data is written.
+data_modified.flush()
 
 # Save the modified raster as a new TIFF.
 with rasterio.open(output_tif, 'w', **profile) as dst:
-    dst.write(data_modified, 1)
+    dst.write(np.array(data_modified), 1)
 
 print("Synthetic trail raster saved to:", output_tif)
 
@@ -96,5 +127,4 @@ print("Synthetic trail raster saved to:", output_tif)
 output_gpkg = os.path.splitext(output_tif)[0] + ".gpkg"
 gdf_labels = gpd.GeoDataFrame(label_records, geometry="geometry", crs=gdf.crs)
 gdf_labels.to_file(output_gpkg, driver="GPKG")
-
 print("Label polygons saved to:", output_gpkg)
