@@ -32,7 +32,7 @@ with rasterio.open(raster_path) as src:
 # If the inverted option is enabled, invert the raster.
 if inverted:
     max_val = data.max()
-    data = max_val - data
+    data = - data
     print("[INFO] Raster has been inverted.")
 
 # Create a memory-mapped copy of the raster data to reduce RAM usage.
