@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 from transformers import SegformerConfig, SegformerForSemanticSegmentation
 from metaflow import FlowSpec, step
 
+
 def normalize_nDTM(image):
     """Normalize image to the [0, 1] range."""
     min_val, max_val = -2, 2
@@ -75,6 +76,11 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         # Save output
         output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_preds_segformer.tif'
         output_path = os.path.join(output_dir, output_filename)
+        from rasterio.windows import Window
+
+        # After computing full_prediction, write it in chunks.
+        chunk_size = 512  # or another size that fits your memory constraints
+
         with rasterio.open(
                 output_path,
                 'w',
@@ -82,11 +88,15 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
                 height=height,
                 width=width,
                 count=1,
-                dtype=rasterio.float32,
+                dtype=rasterio.float32,  # or your chosen dtype
                 crs=src.crs,
                 transform=src.transform
         ) as dst:
-            dst.write(full_prediction, 1)
+            for row in range(0, height, chunk_size):
+                for col in range(0, width, chunk_size):
+                    window = Window(col, row, min(chunk_size, width - col), min(chunk_size, height - row))
+                    data_chunk = full_prediction[row:row + window.height, col:col + window.width]
+                    dst.write(data_chunk, 1, window=window)
 
         print(f"[INFO] Prediction saved to {output_path}")
         return output_path
@@ -176,7 +186,7 @@ class TrailsPredictionFlow(FlowSpec):
 
         # Check if input path is a file or folder
         if os.path.isdir(self.test_image_path):
-            image_files = [os.path.join(self.test_image_path, f) for f in os.listdir(self.test_image_path) if f.endswith('ncdtm.tif')]
+            image_files = [os.path.join(self.test_image_path, f) for f in os.listdir(self.test_image_path) if f.endswith('.tif')]
         else:
             image_files = [self.test_image_path]
 

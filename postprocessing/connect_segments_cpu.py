@@ -208,7 +208,7 @@ def process_all_endpoint_connections(valid_coords, valid_raster_indices, new_ids
                 print(f"🔗 Task: connect new_id {new_ids[i]} → {new_ids[j]} (orig_ids: {orig_ids[i]} vs {orig_ids[j]})")
     return tasks
 
-def connect_segments(gdf, dtm_path, chm_path, scale=1):
+def connect_segments(gdf, dtm_path, chm_path, scale=3):
     # Load and downsample DTM; align boundaries.
     with rasterio.open(dtm_path) as src_dt:
         gdf = align_boundaries(gdf, src_dt)

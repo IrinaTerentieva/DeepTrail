@@ -1,185 +1,142 @@
+import glob
+import os
+import gc
+import random
+import tempfile
+import numpy as np
 import geopandas as gpd
 import rasterio
 from rasterio.features import rasterize
-import numpy as np
-import os
 from shapely.ops import unary_union
-from shapely.affinity import translate
-import random
 import scipy.ndimage as ndimage
-import gc
-import tempfile
 
-# --- Options & Parameters ---
-buffer_meters = 8  # Buffer distance in meters for the centerline.
-shift_meters = 5  # Shift distance (in meters) for sampling adjacent raster.
-gaussian_sigma_blur = 2  # Sigma for light Gaussian blur after blending.
-blend_weight = 3  # Weight factor for blending blurred values.
+# --- Options ---
+inverted = False  # If True, invert the raster before processing.
 
+# Path to the vector file with trails
+vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails.gpkg"
 
-# Custom transformation function to slightly increase low values.
-def increase_low_values(x):
-    if x <= -0.1:
-        return x + 0.2
-    elif -0.1 < x <= -0.05:
-        return x + 0.1
-    elif -0.5 < x <= -0.02:
-        return x + 0.04
-    elif -0.05 < x <= 0.03:
-        return x + 0.02
-    elif 0.03 < x <= 0.1:
-        return x - 0.05
-    elif 0.1 < x <= 0.3:
-        return x - 0.1
-    else:
-        return x
+# Collect all TIF files ending with "blended.tif"
+input_folder = "/media/irina/My Book/Surmont/nDTM"
+tif_paths = glob.glob(os.path.join(input_folder, "*blended.tif"))
 
-
-vec_increase_low_values = np.vectorize(increase_low_values)
-
-# --- Paths ---
-vector_path = '/media/irina/My Book/Surmont/vector_data/FLM/FLM_centerline_Surmont.gpkg'
-raster_path = '/media/irina/My Book/Surmont/temp/test.tif'
-output_tif = raster_path.replace('.tif', '_blended.tif')
-
-# --- Load the Vector & Clip to Raster Boundaries ---
+# Load the trails GeoDataFrame (must have a "trail_id" column)
 gdf = gpd.read_file(vector_path)
-# Remove duplicate geometries.
-gdf = gdf[~gdf.geometry.apply(lambda g: g.wkt).duplicated()]
-print("After duplicate removal, number of features:", len(gdf))
-print("Geometry types:", gdf.geometry.geom_type.unique())
-# Open the raster to get its bounds.
-with rasterio.open(raster_path) as src:
-    raster_bounds = src.bounds
-gdf = gdf.clip(raster_bounds)
-if 'trail_id' not in gdf.columns:
-    gdf['trail_id'] = range(1, len(gdf) + 1)
-
-# --- Open the Raster ---
-with rasterio.open(raster_path) as src:
-    transform = src.transform
-    profile = src.profile
-    data = src.read(1).astype(np.float32)
-    pixel_size = abs(transform.a)
-
-# --- (Optional) Inversion ---
-inverted = False
-if inverted:
-    max_val = data.max()
-    data = max_val - data
-    print("[INFO] Raster has been inverted.")
-
-# --- Create Memory-Mapped Raster ---
-temp_filename = os.path.join(tempfile.gettempdir(), "data_modified.dat")
-data_modified = np.memmap(temp_filename, dtype=np.float32, mode='w+', shape=data.shape)
-data_modified[:] = data[:]
-del data
-gc.collect()
-
-# --- BLENDING STEP: Shift Buffer Sampling & Increase Low Values ---
-print("[INFO] Starting blending step: sampling adjacent raster and blending.")
-label_records = []  # To store buffer polygons.
 trail_ids = gdf['trail_id'].unique()
 
-# Calculate shift in pixel units.
-shift_pixels = shift_meters / pixel_size
-shift_pixels_x = int(round(shift_pixels))  # x offset in pixels (negative for NW)
-shift_pixels_y = int(round(shift_pixels))  # y offset in pixels (positive for NW)
+for raster_path in tif_paths:
+    print(f"[INFO] Processing raster: {raster_path}")
 
-for tid in trail_ids:
-    # Get the trail geometry.
-    trail_features = gdf[gdf['trail_id'] == tid]
-    if trail_features.empty:
-        continue
-    trail_geometry = trail_features.unary_union
+    # Build output paths by appending a suffix or otherwise modifying the filename
+    output_tif = raster_path.replace('.tif', '_synth_trails.tif')
+    output_gpkg = output_tif.replace('.tif', '.gpkg')
 
-    # Create the original buffer (footprint) around the centerline.
-    trail_buffer = trail_geometry.buffer(buffer_meters)
-    label_records.append({
-        "trail_id": tid,
-        "buffer_distance": buffer_meters,
-        "geometry": trail_buffer
-    })
+    # Open raster to get profile, transform, etc.
+    with rasterio.open(raster_path) as src:
+        profile = src.profile
+        transform = src.transform
+        # Read the single band as float32
+        data = src.read(1).astype(np.float32)
+        pixel_size = abs(transform.a)
 
-    # Create a shifted version of the buffer: shift diagonally NW.
-    # NW: x offset negative, y offset positive.
-    shifted_buffer = translate(trail_buffer, xoff=-shift_meters, yoff=shift_meters)
+    # Optionally invert
+    if inverted:
+        max_val = data.max()
+        data = - data
+        print("[INFO] Raster has been inverted.")
 
-    # Rasterize both the original and shifted buffers.
-    mask_orig = rasterize(
-        [(trail_buffer, 1)],
-        out_shape=(profile['height'], profile['width']),
-        transform=transform,
-        fill=0,
-        dtype=np.uint8
+    # Create memmap to avoid large in-memory array
+    temp_filename = os.path.join(tempfile.gettempdir(), "data_modified.dat")
+    data_modified = np.memmap(
+        temp_filename, dtype=np.float32, mode='w+', shape=data.shape
     )
-    mask_shift = rasterize(
-        [(shifted_buffer, 1)],
-        out_shape=(profile['height'], profile['width']),
-        transform=transform,
-        fill=0,
-        dtype=np.uint8
-    )
-
-    # Determine bounding box from the original mask.
-    rows, cols = np.where(mask_orig == 1)
-    if len(rows) == 0 or len(cols) == 0:
-        continue
-    row_min, row_max = rows.min(), rows.max() + 1
-    col_min, col_max = cols.min(), cols.max() + 1
-    region = (slice(row_min, row_max), slice(col_min, col_max))
-
-    # Crop the original mask and the shifted mask.
-    mask_crop_orig = mask_orig[row_min:row_max, col_min:col_max]
-    mask_crop_shift = mask_shift[row_min:row_max, col_min:col_max]
-    # Extract the corresponding raster region.
-    region_data = data_modified[region].copy()
-
-    # Now, sample the adjacent raster: where the shifted mask is 1, take those values.
-    sampled_region = np.copy(region_data)
-    # (In this simple approach, we assume the raster is continuous, so just use region_data.)
-    # Now, shift the sampled region back to the original location.
-    # Since the buffer was shifted by (-shift_meters, shift_meters) in map units,
-    # convert shift_meters to pixel shifts and shift back by (shift_pixels, -shift_pixels).
-    moved_region = np.roll(sampled_region, shift=(shift_pixels_y, shift_pixels_x), axis=(0, 1))
-    # Alternatively, for more precise translation, you could resample the region.
-
-    # Next, apply our custom transformation to the moved (sampled) region.
-    transformed_region = vec_increase_low_values(moved_region)
-
-    # Compute a gradient mask from the original buffer.
-    distance_inside = ndimage.distance_transform_edt(mask_crop_orig)
-    max_distance = distance_inside.max() if distance_inside.max() > 0 else 1
-    gradient_mask = distance_inside / max_distance  # 0 at edge, 1 at center.
-
-    # Blend the transformed (sampled) region with the original region.
-    blended_region = region_data * (1 - gradient_mask) + transformed_region * gradient_mask
-
-    # Apply a light Gaussian blur to smooth the transition.
-    blurred_region = ndimage.gaussian_filter(blended_region, sigma=gaussian_sigma_blur)
-    final_region = region_data * (1 - 0.5 * gradient_mask) + blurred_region * (0.5 * gradient_mask)
-
-    # Update only pixels within the original buffer.
-    region_data[mask_crop_orig == 1] = final_region[mask_crop_orig == 1]
-    data_modified[region] = region_data
-
-    del mask_orig, mask_shift, mask_crop_orig, mask_crop_shift, region_data, sampled_region, moved_region, transformed_region, distance_inside, gradient_mask, blended_region, blurred_region, final_region
+    data_modified[:] = data[:]
+    del data
     gc.collect()
-print("[INFO] Blending step completed using shifted buffer sampling with low-value increase.")
 
-# --- Post-Processing: Set Out-of-Range Values to 0 ---
-print("[INFO] Post-processing: setting values outside [-5,5] to 0.")
-final_array = np.array(data_modified)
-final_array[(final_array < -5) | (final_array > 5)] = 0
-data_modified.flush()
+    # Prepare a list to hold label polygons (buffered trail areas)
+    label_records = []
 
-# --- Save Final Raster ---
-with rasterio.open(output_tif, 'w', **profile) as dst:
-    dst.write(final_array, 1)
-print("Final blended raster saved to:", output_tif)
+    # Process each unique trail
+    for tid in trail_ids:
+        # Subset geometry for this trail
+        trail_features = gdf[gdf['trail_id'] == tid]
+        trail_geometry = trail_features.union_all()
 
-# --- Save Label Polygons ---
-output_gpkg = os.path.splitext(output_tif)[0] + ".gpkg"
-gdf_labels = gpd.GeoDataFrame(label_records, geometry="geometry", crs=gdf.crs)
-gdf_labels.to_file(output_gpkg, driver="GPKG")
-print("Label polygons saved to:", output_gpkg)
+        # Random buffer range in pixels
+        random_buffer_pixels = random.uniform(4, 6.5)
+        buffer_distance = random_buffer_pixels * pixel_size
+
+        # Buffer the merged trail geometry
+        trail_buffer = trail_geometry.buffer(buffer_distance)
+
+        # Store for output GPKG
+        label_records.append({
+            "trail_id": tid,
+            "buffer_pixels": random_buffer_pixels,
+            "buffer_distance": buffer_distance,
+            "geometry": trail_buffer
+        })
+
+        # Rasterize the buffered polygon
+        mask = rasterize(
+            [(trail_buffer, 1)],
+            out_shape=(profile['height'], profile['width']),
+            transform=transform,
+            fill=0,
+            dtype=np.uint8
+        )
+
+        # Determine bounding box of the mask to reduce area of processing
+        rows, cols = np.where(mask == 1)
+        if len(rows) == 0 or len(cols) == 0:
+            continue
+        row_min, row_max = rows.min(), rows.max() + 1
+        col_min, col_max = cols.min(), cols.max() + 1
+
+        # Crop the mask
+        mask_crop = mask[row_min:row_max, col_min:col_max]
+        shape_crop = mask_crop.shape
+
+        # Create and smooth random field
+        random_field_crop = np.random.uniform(low=-0.02, high=0.2, size=shape_crop)
+        smooth_subtraction_crop = ndimage.gaussian_filter(random_field_crop, sigma=5)
+
+        # Distance transform
+        distance_inside_crop = ndimage.distance_transform_edt(mask_crop)
+        max_distance = distance_inside_crop.max() if distance_inside_crop.max() > 0 else 1
+        gradient_mask_crop = distance_inside_crop / max_distance
+
+        # Combine random field with distance gradient
+        adjusted_subtraction_crop = smooth_subtraction_crop * gradient_mask_crop
+
+        # Update memmap on the cropped region
+        region = (slice(row_min, row_max), slice(col_min, col_max))
+        data_modified_region = data_modified[region]
+        data_modified_region[mask_crop == 1] -= adjusted_subtraction_crop[mask_crop == 1]
+        data_modified[region] = data_modified_region
+
+        # Clean up
+        del (mask, mask_crop, random_field_crop, smooth_subtraction_crop,
+             distance_inside_crop, gradient_mask_crop, adjusted_subtraction_crop,
+             data_modified_region)
+        gc.collect()
+
+    # Flush memmap
+    data_modified.flush()
+
+    # Write final output raster
+    with rasterio.open(output_tif, 'w', **profile) as dst:
+        dst.write(np.array(data_modified), 1)
+    print(f"[INFO] Synthetic trail raster saved to: {output_tif}")
+
+    # Write label polygons (buffered areas)
+    gdf_labels = gpd.GeoDataFrame(label_records, geometry="geometry", crs=gdf.crs)
+    gdf_labels.to_file(output_gpkg, driver="GPKG")
+    print(f"[INFO] Label polygons saved to: {output_gpkg}")
+
+    # Clean up memmap
+    del data_modified
+    gc.collect()
+
+print("[INFO] Processing complete for all matched TIF files.")

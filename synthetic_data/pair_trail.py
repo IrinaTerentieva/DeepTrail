@@ -7,14 +7,18 @@ import numpy as np
 from scipy.interpolate import splprep, splev
 
 # --- Settings ---
-spline_smoothing = 1.0  # Smoothing factor for the spline interpolation (increase for stronger smoothing)
-max_width = 2  # Maximum offset width
+spline_smoothing = 1.2  # Smoothing factor for the spline interpolation (increase for stronger smoothing)
+max_width = 2.5  # Maximum offset width
 # Set smooth flag to True to apply spline smoothing.
 smooth = True
 
+# # Paths for the input vector and output name.
+# input_trails = 'file:///media/irina/My Book1/Conoco/DATA/FLM/FLM_2022/Surmont_2022_centerline.shp'
+# name = 'Surmont'
+
 # Paths for the input vector and output name.
-input_trails = 'file:///media/irina/My Book1/Conoco/DATA/FLM/FLM_2022/Surmont_2022_centerline.shp'
-name = 'Surmont'
+input_trails = '/media/irina/My Book1/LiDea_Pilot/FLM/all_group_copy_ID.gpkg'
+name = 'LiDea_pilot'
 
 # Define the local output folder and ensure it exists.
 output_folder = '/home/irina/HumanFootprint/DATA/manual/intermediate'

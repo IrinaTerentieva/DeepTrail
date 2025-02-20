@@ -15,7 +15,8 @@ inverted = True  # If True, invert the raster before processing.
 # Paths for the input vector (combined original/synthetic) and raster files
 vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/LiDea_pilot_synthetic_trails.gpkg"
 raster_path = "file:///media/irina/My Book1/LiDea_Pilot/nDTM/LideaPilot_10cm_nDTM.tif"
-output_tif = raster_path.replace('.tif', 'synth_trails.tif')
+
+output_tif = raster_path.replace('.tif', 'synth_trails_v4.tif')
 
 # Load the combined vector file (it should have a "trail_id" column)
 gdf = gpd.read_file(vector_path)
@@ -36,7 +37,7 @@ if inverted:
     print("[INFO] Raster has been inverted.")
 
 # Create a memory-mapped copy of the raster data to reduce RAM usage.
-temp_filename = os.path.join(tempfile.gettempdir(), "data_modified.dat")
+temp_filename = "/media/irina/My Book1/LiDea_Pilot/temp/data_modified.dat"
 data_modified = np.memmap(temp_filename, dtype=np.float32, mode='w+', shape=data.shape)
 data_modified[:] = data[:]
 del data  # free the original data array
@@ -52,10 +53,10 @@ for tid in trail_ids:
     # Select all features (both original and synthetic) for this trail
     trail_features = gdf[gdf['trail_id'] == tid]
     # Merge the geometries for this trail
-    trail_geometry = trail_features.unary_union
+    trail_geometry = trail_features.union_all()
 
     # Generate a random buffer (in pixels) between 3 and 6; convert to map units.
-    random_buffer_pixels = random.uniform(3, 7)
+    random_buffer_pixels = random.uniform(4, 6.5)
     buffer_distance = random_buffer_pixels * pixel_size
 
     # Buffer the merged trail geometry using the random buffer distance.
@@ -91,7 +92,7 @@ for tid in trail_ids:
     shape_crop = mask_crop.shape
 
     # Create a random field on just the cropped area
-    random_field_crop = np.random.uniform(low=-0.02, high=0.15, size=shape_crop)
+    random_field_crop = np.random.uniform(low=-0.02, high=0.2, size=shape_crop)
     # Smooth the random field with a Gaussian filter (sigma=5 for moderate smoothing)
     smooth_subtraction_crop = ndimage.gaussian_filter(random_field_crop, sigma=5)
     # Compute a distance transform on the cropped mask

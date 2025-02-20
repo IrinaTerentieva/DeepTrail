@@ -6,6 +6,24 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from transformers import SegformerConfig, SegformerForSemanticSegmentation
+import os
+import yaml
+import torch
+import rasterio
+import numpy as np
+from tqdm import tqdm
+from torch.utils.data import Dataset
+from transformers import SegformerConfig, SegformerForSemanticSegmentation
+import gc
+import tempfile
+
+def normalize_nDTM(image):
+    """Normalize image to the [0, 1] range."""
+    min_val, max_val = -2, 2
+    image = np.clip(image, min_val, max_val)
+    return (image - min_val) / (max_val - min_val)
+
+
 
 def normalize_nDTM(image):
     """Normalize image to the [0, 1] range."""
@@ -15,7 +33,8 @@ def normalize_nDTM(image):
 
 def sliding_window_prediction(image_path, model, output_dir, patch_size, stride):
     """
-    Perform sliding window prediction on a single image.
+    Perform sliding window prediction on a single image using memmap for accumulation
+    to reduce peak RAM usage.
     """
     with rasterio.open(image_path) as src:
         print(f"\n[INFO] Processing: {image_path}")
@@ -23,50 +42,57 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         image = np.nan_to_num(image, nan=0.0)
         image_nodata = src.nodata
         if image_nodata is not None:
-            image[image == image_nodata] = 0  # Handle nodata values
+            image[image == image_nodata] = 0
 
         # Normalize input DTM
+        # image = -image
         image = normalize_nDTM(image)
 
         height, width = image.shape
-        accumulation = np.zeros((height, width), dtype=np.float32)
-        count_array = np.zeros((height, width), dtype=np.int32)
+
+        # Create memory-mapped arrays for accumulation and count
+        temp_dir = tempfile.gettempdir()
+        accum_path = os.path.join(temp_dir, "accumulation.dat")
+        count_path = os.path.join(temp_dir, "count_array.dat")
+        accumulation = np.memmap(accum_path, dtype=np.float32, mode='w+', shape=(height, width))
+        accumulation[:] = 0.0
+        count_array = np.memmap(count_path, dtype=np.int32, mode='w+', shape=(height, width))
+        count_array[:] = 0
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Sliding window inference
+        # Process sliding window patch-by-patch
         for i in tqdm(range(0, height - patch_size + 1, stride), desc="Sliding Window Row"):
             for j in tqdm(range(0, width - patch_size + 1, stride), desc="Sliding Window Col", leave=False):
                 patch = image[i:i + patch_size, j:j + patch_size]
-
-                # Skip empty patches
                 if np.all(patch == 0):
                     continue
 
                 tensor_patch = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).float().to(device)
-
                 with torch.no_grad():
                     outputs = model(pixel_values=tensor_patch)
                     logits = outputs.logits
-                    probabilities = torch.sigmoid(logits)  # Binary segmentation
+                    probabilities = torch.sigmoid(logits)
                     upsampled_probs = torch.nn.functional.interpolate(
                         probabilities, size=(patch_size, patch_size), mode="bilinear", align_corners=False
                     )
                     prob_values = upsampled_probs.squeeze(0).squeeze(0).cpu().numpy()
 
-                # Accumulate predictions
                 accumulation[i:i + patch_size, j:j + patch_size] += prob_values
                 count_array[i:i + patch_size, j:j + patch_size] += 1
 
-        # Compute final prediction by averaging overlapping areas
+                del tensor_patch, outputs, logits, probabilities, upsampled_probs, prob_values
+                torch.cuda.empty_cache()
+            gc.collect()
+
+        accumulation.flush()
+        count_array.flush()
+
         full_prediction = accumulation / np.maximum(count_array, 1)
 
-        # Save output
         output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_preds_segformer.tif'
         output_path = os.path.join(output_dir, output_filename)
         from rasterio.windows import Window
-
-        # Write predictions in chunks.
         chunk_size = 512
         with rasterio.open(
                 output_path,
@@ -85,6 +111,8 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
                     data_chunk = full_prediction[row:row + window.height, col:col + window.width]
                     dst.write(data_chunk, 1, window=window)
 
+        del accumulation, count_array
+        gc.collect()
         print(f"[INFO] Prediction saved to {output_path}")
         return output_path
 
