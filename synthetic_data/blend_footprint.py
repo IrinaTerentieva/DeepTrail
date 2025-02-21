@@ -1,14 +1,15 @@
+import glob
+import os
+import gc
+import random
+import tempfile
+import numpy as np
 import geopandas as gpd
 import rasterio
 from rasterio.features import rasterize
-import numpy as np
-import os
 from shapely.ops import unary_union
 from shapely.affinity import translate
-import random
 import scipy.ndimage as ndimage
-import gc
-import tempfile
 
 # --- Options & Parameters ---
 buffer_meters = 8  # Buffer distance in meters for the centerline.
@@ -17,8 +18,6 @@ gaussian_sigma_blur = 2  # Sigma for light Gaussian blur after blending.
 blend_weight = 3  # Weight factor for blending blurred values.
 inverted = False
 
-
-# Custom transformation function to slightly increase low values.
 def increase_low_values(x):
     if x <= -0.1:
         return x + 0.2
@@ -35,8 +34,6 @@ def increase_low_values(x):
     else:
         return x
 
-import glob
-
 vec_increase_low_values = np.vectorize(increase_low_values)
 
 # --- Paths ---
@@ -45,9 +42,14 @@ raster_folder = '/media/irina/My Book/Surmont/nDTM'
 
 tif_files = glob.glob(os.path.join(raster_folder, '*.tif'))
 print(f"[INFO] Found {len(tif_files)} TIFF files to process.")
-results = []
+
 for raster_path in tif_files:
     output_tif = raster_path.replace('.tif', '_blended.tif')
+
+    # If the output file already exists, skip
+    if os.path.exists(output_tif):
+        print(f"[INFO] {output_tif} already exists. Skipping processing.")
+        continue
 
     # --- Load the Vector & Clip to Raster Boundaries ---
     gdf = gpd.read_file(vector_path)
@@ -55,10 +57,12 @@ for raster_path in tif_files:
     gdf = gdf[~gdf.geometry.apply(lambda g: g.wkt).duplicated()]
     print("After duplicate removal, number of features:", len(gdf))
     print("Geometry types:", gdf.geometry.geom_type.unique())
+
     # Open the raster to get its bounds.
     with rasterio.open(raster_path) as src:
         raster_bounds = src.bounds
     gdf = gdf.clip(raster_bounds)
+
     if 'trail_id' not in gdf.columns:
         gdf['trail_id'] = range(1, len(gdf) + 1)
 
@@ -84,22 +88,21 @@ for raster_path in tif_files:
 
     # --- BLENDING STEP: Shift Buffer Sampling & Increase Low Values ---
     print("[INFO] Starting blending step: sampling adjacent raster and blending.")
-    label_records = []  # To store buffer polygons.
+    label_records = []
     trail_ids = gdf['trail_id'].unique()
 
     # Calculate shift in pixel units.
     shift_pixels = shift_meters / pixel_size
-    shift_pixels_x = int(round(shift_pixels))  # x offset in pixels (negative for NW)
-    shift_pixels_y = int(round(shift_pixels))  # y offset in pixels (positive for NW)
+    shift_pixels_x = int(round(shift_pixels))  # x offset in pixels
+    shift_pixels_y = int(round(shift_pixels))  # y offset in pixels
 
     for tid in trail_ids:
-        # Get the trail geometry.
         trail_features = gdf[gdf['trail_id'] == tid]
         if trail_features.empty:
             continue
         trail_geometry = trail_features.unary_union
 
-        # Create the original buffer (footprint) around the centerline.
+        # Create the original buffer.
         trail_buffer = trail_geometry.buffer(buffer_meters)
         label_records.append({
             "trail_id": tid,
@@ -107,8 +110,7 @@ for raster_path in tif_files:
             "geometry": trail_buffer
         })
 
-        # Create a shifted version of the buffer: shift diagonally NW.
-        # NW: x offset negative, y offset positive.
+        # Shifted version of the buffer: NW => negative x, positive y.
         shifted_buffer = translate(trail_buffer, xoff=-shift_meters, yoff=shift_meters)
 
         # Rasterize both the original and shifted buffers.
@@ -127,7 +129,7 @@ for raster_path in tif_files:
             dtype=np.uint8
         )
 
-        # Determine bounding box from the original mask.
+        # Determine bounding box of the original mask.
         rows, cols = np.where(mask_orig == 1)
         if len(rows) == 0 or len(cols) == 0:
             continue
@@ -135,42 +137,39 @@ for raster_path in tif_files:
         col_min, col_max = cols.min(), cols.max() + 1
         region = (slice(row_min, row_max), slice(col_min, col_max))
 
-        # Crop the original mask and the shifted mask.
+        # Extract relevant crops
         mask_crop_orig = mask_orig[row_min:row_max, col_min:col_max]
         mask_crop_shift = mask_shift[row_min:row_max, col_min:col_max]
-        # Extract the corresponding raster region.
         region_data = data_modified[region].copy()
 
-        # Now, sample the adjacent raster: where the shifted mask is 1, take those values.
+        # Sample region_data for the shifted buffer
         sampled_region = np.copy(region_data)
-        # (In this simple approach, we assume the raster is continuous, so just use region_data.)
-        # Now, shift the sampled region back to the original location.
-        # Since the buffer was shifted by (-shift_meters, shift_meters) in map units,
-        # convert shift_meters to pixel shifts and shift back by (shift_pixels, -shift_pixels).
         moved_region = np.roll(sampled_region, shift=(shift_pixels_y, shift_pixels_x), axis=(0, 1))
-        # Alternatively, for more precise translation, you could resample the region.
 
-        # Next, apply our custom transformation to the moved (sampled) region.
+        # Transform low values in the shifted sample
         transformed_region = vec_increase_low_values(moved_region)
 
-        # Compute a gradient mask from the original buffer.
+        # Build a gradient mask from the original buffer
         distance_inside = ndimage.distance_transform_edt(mask_crop_orig)
         max_distance = distance_inside.max() if distance_inside.max() > 0 else 1
-        gradient_mask = distance_inside / max_distance  # 0 at edge, 1 at center.
+        gradient_mask = distance_inside / max_distance  # 0 at edge, 1 at center
 
-        # Blend the transformed (sampled) region with the original region.
+        # Blend
         blended_region = region_data * (1 - gradient_mask) + transformed_region * gradient_mask
 
-        # Apply a light Gaussian blur to smooth the transition.
+        # Light blur
         blurred_region = ndimage.gaussian_filter(blended_region, sigma=gaussian_sigma_blur)
         final_region = region_data * (1 - 0.5 * gradient_mask) + blurred_region * (0.5 * gradient_mask)
 
-        # Update only pixels within the original buffer.
+        # Update only pixels within the original buffer
         region_data[mask_crop_orig == 1] = final_region[mask_crop_orig == 1]
         data_modified[region] = region_data
 
-        del mask_orig, mask_shift, mask_crop_orig, mask_crop_shift, region_data, sampled_region, moved_region, transformed_region, distance_inside, gradient_mask, blended_region, blurred_region, final_region
+        del (mask_orig, mask_shift, mask_crop_orig, mask_crop_shift, region_data, sampled_region,
+             moved_region, transformed_region, distance_inside, gradient_mask,
+             blended_region, blurred_region, final_region)
         gc.collect()
+
     print("[INFO] Blending step completed using shifted buffer sampling with low-value increase.")
 
     # --- Post-Processing: Set Out-of-Range Values to 0 ---
@@ -183,3 +182,9 @@ for raster_path in tif_files:
     with rasterio.open(output_tif, 'w', **profile) as dst:
         dst.write(final_array, 1)
     print("Final blended raster saved to:", output_tif)
+
+    # Clean up
+    del data_modified, final_array
+    gc.collect()
+
+print("[INFO] Processing complete for all matched TIF files.")

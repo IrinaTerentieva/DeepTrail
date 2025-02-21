@@ -56,7 +56,7 @@ for tid in trail_ids:
     trail_geometry = trail_features.union_all()
 
     # Generate a random buffer (in pixels) between 3 and 6; convert to map units.
-    random_buffer_pixels = random.uniform(4, 6.5)
+    random_buffer_pixels = random.uniform(5, 6.5)
     buffer_distance = random_buffer_pixels * pixel_size
 
     # Buffer the merged trail geometry using the random buffer distance.

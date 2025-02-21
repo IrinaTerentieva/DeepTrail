@@ -107,35 +107,6 @@ class TrailsDataset(Dataset):
         return large_regions
 
 
-# ------------------- Image Normalization -------------------
-def normalize_image(image):
-    """
-    Normalize image to the [0, 1] range.
-    - Replace all negative values with 0.
-    - Use the next smallest positive value as the minimum for normalization.
-    """
-    # Replace NaNs with 0
-    image = np.nan_to_num(image, nan=0.0)
-
-    # Clip negative values to -10
-    image = np.clip(image, -10, np.max(image))
-
-    # Find the next smallest positive value after 0
-    min_value = image[image > -10]
-    min_positive_val = np.min(min_value)
-
-    # Normalize the image using the next smallest positive value
-    max_val = np.max(image)
-
-    # Avoid division by zero if all values are the same
-    if max_val - min_positive_val == 0:
-        return image  # No normalization needed if all values are the same
-
-    # Normalize to [0, 1] using the next positive value
-    image = (image - min_positive_val) / (max_val - min_positive_val)
-
-    return image
-
 # ------------------- Image nDTM Normalization -------------------
 def normalize_nDTM(image):
     """
@@ -148,8 +119,8 @@ def normalize_nDTM(image):
 
     # Clip negative values to -10
 
-    min_positive_val = -0.2
-    max_val = 0.2
+    min_positive_val = -0.5
+    max_val = 0.5
 
     image = np.clip(image, min_positive_val, max_val)
 
@@ -262,23 +233,6 @@ def build_augmentations(config):
     return A.Compose(augmentations)
 
 # ------------------- Predictions -------------------
-def normalize_nDTM(image):
-    """
-    Normalize image to the [0, 1] range.
-    - Replace all negative values with 0.
-    - Clip values to [-1, 1] and normalize.
-    """
-
-    min_positive_val = -0.5
-    max_val = 0.5
-
-    # Clip values to [-1, 1]
-    image = np.clip(image, min_positive_val, max_val)
-
-    # Normalize to [0, 1]
-    image = (image - min_positive_val) / (max_val - min_positive_val)
-    return image
-
 
 def sliding_window_prediction(image_path, model, patch_size, stride, max_height):
     """

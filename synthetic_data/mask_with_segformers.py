@@ -5,6 +5,7 @@ import numpy as np
 import geopandas as gpd
 import rasterio
 from rasterio.features import rasterize
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ------------------------
 # User parameters
@@ -15,7 +16,7 @@ segformer_folder = "/media/irina/My Book/Surmont/nDTM_10cm_segformer"
 # Buffer distance (meters) for label geometry
 buffer_distance_m = 5.0
 
-# Minimum confidence in segformer raster (changed to 3)
+# Minimum confidence in segformer raster
 confidence_threshold = 3
 
 # Where to put final output
@@ -24,6 +25,7 @@ os.makedirs(output_folder, exist_ok=True)
 
 # Collect all TIFs in input_folder that match *_blended_synth_trails.tif
 tif_paths = glob.glob(os.path.join(input_folder, "*_blended_synth_trails.tif"))
+# Example override for testing a single file:
 # tif_paths = ['/media/irina/My Book/Surmont/nDTM_synth_trails/510_6228_nDTM_blended_synth_trails.tif']
 
 def get_base(filepath):
@@ -50,13 +52,12 @@ def construct_segformer_path(input_base):
     segformer_base = input_base.replace("_blended_synth_trails", "_preds_segformer")
     return os.path.join(segformer_folder, segformer_base + ".tif")
 
-for input_raster_path in tif_paths:
-    base_name = get_base(input_raster_path)  # e.g. 493_6223_nDTM_blended_synth_trails
+def process_tif(input_raster_path):
+    """Process a single TIF file: skip areas in burn buffer, add +0.05 where segformer >= 3."""
+    base_name = get_base(input_raster_path)
     print(f"[INFO] Processing: {input_raster_path}")
 
-    # ---------------------------------------
     # 1) Open input raster
-    # ---------------------------------------
     with rasterio.open(input_raster_path) as src:
         profile = src.profile.copy()
         transform = src.transform
@@ -65,20 +66,23 @@ for input_raster_path in tif_paths:
 
     height, width = data.shape
 
-    # ---------------------------------------
     # 2) Find and load the label
-    # ---------------------------------------
     label_path = construct_label_path(input_raster_path)
     if not os.path.isfile(label_path):
-        print(f"  [WARNING] No label .gpkg found for {base_name}. Skipping...")
-        continue
+        msg = f"  [WARNING] No label .gpkg for {base_name}. Skipping..."
+        print(msg)
+        return msg
 
     gdf = gpd.read_file(label_path)
     if gdf.crs != crs:
         gdf = gdf.to_crs(crs)
 
     # Filter label to only features with "mode"="burn"
-    gdf_burn = gdf[gdf["mode"] == "burn"]
+    if "mode" in gdf.columns:
+        gdf_burn = gdf[gdf["mode"] == "burn"]
+    else:
+        gdf_burn = gdf.iloc[:0]  # empty if no "mode" column
+
     if not gdf_burn.empty:
         label_union_burn = gdf_burn.unary_union
         burn_buffer = label_union_burn.buffer(buffer_distance_m)
@@ -98,32 +102,30 @@ for input_raster_path in tif_paths:
         # If no burn geometry, maskA is all zeros
         maskA = np.zeros((height, width), dtype=np.uint8)
 
-    # ---------------------------------------
     # 3) Segformer raster => *preds_segformer.tif
-    # ---------------------------------------
     segformer_path = construct_segformer_path(base_name)
     if segformer_path is None or not os.path.isfile(segformer_path):
-        print(f"  [WARNING] No segformer raster found for {base_name}.\n    Expected: {segformer_path}\n    Skipping...")
-        continue
+        msg = f"  [WARNING] No segformer raster found for {base_name}.\n    Expected: {segformer_path}\n    Skipping..."
+        print(msg)
+        return msg
 
     with rasterio.open(segformer_path) as conf_src:
         if conf_src.crs != crs:
             print("  [WARNING] segformer raster CRS != input raster CRS (attempting read anyway).")
         conf_data = conf_src.read(1).astype(np.float32)
 
-    # Create maskB where >= 3
+    # Create maskB where >= confidence_threshold (3)
     maskB = (conf_data >= confidence_threshold).astype(np.uint8)
 
-    # region_of_interest = (outside the burn buffer) & (segformer >= 3)
+    # region_of_interest = (outside burn buffer) & (segformer >= 3)
     region_of_interest = ((maskA == 0) & (maskB == 1)).astype(np.uint8)
+    roi_sum = region_of_interest.sum()
+    if roi_sum == 0:
+        msg = "  [INFO] No pixels to process in this tile. Skipping modifications."
+        print(msg)
+        return msg
 
-    if region_of_interest.sum() == 0:
-        print("  [INFO] No pixels to process in this tile. Skipping modifications.")
-        continue
-
-    # ---------------------------------------
-    # Just +0.1 in the region_of_interest
-    # ---------------------------------------
+    # Just +0.05 in the region_of_interest
     data[region_of_interest == 1] += 0.05
 
     # Save final
@@ -133,10 +135,31 @@ for input_raster_path in tif_paths:
     with rasterio.open(output_path, 'w', **profile) as dst:
         dst.write(data, 1)
 
-    print(f"  [INFO] Saved updated raster to {output_path}")
-
-    # Cleanup
+    print(f"  [INFO] Processed {base_name}. Pixels updated: {roi_sum}. Output => {output_path}")
     del data, conf_data, maskA, maskB, region_of_interest
     gc.collect()
+    return f"Finished {base_name}"
 
-print("[INFO] Done processing all TIF files.")
+def main():
+    print("[INFO] Starting parallel processing.")
+    results = []
+    # Use up to 16 workers
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    with ProcessPoolExecutor(max_workers=16) as executor:
+        future_to_file = {executor.submit(process_tif, path): path for path in tif_paths}
+
+        for future in as_completed(future_to_file):
+            path = future_to_file[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                print(f"[ERROR] {path} generated an exception: {exc}")
+            else:
+                results.append(result)
+                print(f"[INFO] Completed: {result}")
+
+    print("[INFO] All tasks finished.")
+    return results
+
+if __name__ == "__main__":
+    main()
