@@ -11,11 +11,6 @@ import wandb  # For logging to Weights & Biases
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from collections import Counter
-
-
-
-# ------------------- Data Loader -------------------
-
 import numpy as np
 import torch
 import rasterio
@@ -32,19 +27,43 @@ class TrailsDataset(Dataset):
         transform (albumentations.Compose, optional): Transformation pipeline for data augmentation.
     """
 
-    def __init__(self, data_dir, threshold=0, min_area=400, transform=None):
+    def __init__(self, data_dir, std = 0.5, threshold=0, min_area=100, skip_threshold = 0.01, transform=None):
         self.data_dir = data_dir
         self.transform = transform
         self.threshold = threshold  # Default threshold for binarizing the mask
         self.min_area = min_area  # Default minimum area for filtering
         self.image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
+        self.skip_threshold = skip_threshold
+        self.std = std
+
+        all_image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
+        self.valid_files = []
+        for image_file in all_image_files:
+            label_file = image_file.replace('_image.tif', '_label.tif')
+            label_path = os.path.join(data_dir, label_file)
+            if not os.path.exists(label_path):
+                continue
+            try:
+                with rasterio.open(label_path) as src:
+                    mask = src.read(1).astype(np.uint8)
+            except Exception as e:
+                print(f"Error reading label file {label_path}: {e}")
+                continue
+
+            mask = np.where(mask > self.threshold, 1, 0).astype(np.uint8)
+            mask = self._filter_small_regions(mask)
+            ratio = np.sum(mask) / mask.size
+            if ratio >= self.skip_threshold:
+                self.valid_files.append(image_file)
+            else:
+                print(f"Skipping {image_file} because label area ratio ({ratio:.4f}) is below threshold {skip_threshold}")
+
 
     def __len__(self):
-        return len(self.image_files)
+        return len(self.valid_files)
 
     def __getitem__(self, idx):
-        img_path = self.image_files[idx]
-        image_file = self.image_files[idx]
+        image_file = self.valid_files[idx]
         label_file = image_file.replace('_image.tif', '_label.tif')
         image_path = os.path.join(self.data_dir, image_file)
         label_path = os.path.join(self.data_dir, label_file)
@@ -56,7 +75,7 @@ class TrailsDataset(Dataset):
             if image_nodata is not None:
                 image[image == image_nodata] = 0  # Replace nodata with 0
 
-            image = normalize_nDTM(image)
+            image = normalize_nDTM(image, self.std)
 
         with rasterio.open(label_path) as label_src:
             mask = label_src.read(1).astype(np.uint8)  # Ensure mask is binary (0, 1)
@@ -108,7 +127,7 @@ class TrailsDataset(Dataset):
 
 
 # ------------------- Image nDTM Normalization -------------------
-def normalize_nDTM(image):
+def normalize_nDTM(image, std):
     """
     Normalize image to the [0, 1] range.
     - Replace all negative values with 0.
@@ -119,8 +138,8 @@ def normalize_nDTM(image):
 
     # Clip negative values to -10
 
-    min_positive_val = -0.5
-    max_val = 0.5
+    min_positive_val = -std
+    max_val = std
 
     image = np.clip(image, min_positive_val, max_val)
 

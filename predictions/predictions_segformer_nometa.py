@@ -12,7 +12,7 @@ import scipy.ndimage as ndimage
 
 def normalize_nDTM(image):
     """Normalize image to the [0, 1] range."""
-    min_val, max_val = -0.5, 0.5
+    min_val, max_val = -0.2, 0.2
     image = np.clip(image, min_val, max_val)
     return (image - min_val) / (max_val - min_val)
 
@@ -89,9 +89,11 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         labeled, num_features = ndimage.label(bin_mask)
         component_sizes = ndimage.sum(bin_mask, labeled, index=range(1, num_features + 1))
         too_small = [idx for idx, size in enumerate(component_sizes, start=1) if size < 200]
+
         if too_small:
             too_small_set = set(too_small)
             bin_mask[np.isin(labeled, list(too_small_set))] = 0
+
         full_prediction[bin_mask == 0] = 0.0
 
         # Multiply by 100 and convert to uint8
@@ -116,7 +118,7 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         # new_profile['nodata'] = 255
 
         from rasterio.windows import Window
-        chunk_size = 512
+        chunk_size = 1024
 
         with rasterio.open(output_path, 'w', **new_profile) as dst:
             for row in range(0, height, chunk_size):
@@ -149,7 +151,7 @@ def load_model(config, base_dir):
     model_path = os.path.join(base_dir, prediction_params['model_path'])
     print(f"[INFO] Loading Model from: {model_path}")
 
-    model_config = config['models']['mit-b3']
+    model_config = config['models']['mit-b2']
     config_obj = SegformerConfig(
         num_labels=1,
         depths=model_config['depths'],
@@ -184,7 +186,7 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/media/irina/My Book/Surmont/nDTM'
+    test_image_path = '/home/irina/HumanFootprint/DATA/Training_CNN/synth_tracks_1024px_10cm/64_image.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
     os.makedirs(output_dir, exist_ok=True)

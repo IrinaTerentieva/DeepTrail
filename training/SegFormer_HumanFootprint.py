@@ -80,7 +80,7 @@ def main():
 
     # --- Load Dataset and Create DataLoaders ---
     augmentations = build_augmentations(config)
-    dataset = TrailsDataset(data_dir=dataset_path, transform=augmentations)
+    dataset = TrailsDataset(data_dir=dataset_path, transform=augmentations, std = 0.2, threshold=0.1, min_area=10, skip_threshold = 0.01)
     print(f"Total dataset length: {len(dataset)}")
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
@@ -97,9 +97,10 @@ def main():
     image_statistics = []
     mask_statistics = []
     shape_check = []
+
     class_imbalance = {"class_0": [], "class_1": []}
     for idx, (image, mask) in enumerate(val_loader):
-        if idx >= 5:
+        if idx >= 15:
             break
         image_np = image[0].cpu().numpy().squeeze()
         mask_np = mask[0].cpu().numpy().squeeze()
@@ -129,6 +130,7 @@ def main():
             bias=False
         )
         return model
+    print('\n*******************working with: ', architecture)
 
     if architecture.startswith("mit-"):
         config_model = config['models'][architecture]
@@ -210,12 +212,31 @@ def main():
         with torch.no_grad():
             val_outputs = model(pixel_values=val_images)
             val_preds = torch.sigmoid(val_outputs.logits).cpu().numpy()
+
         for i in range(min(3, val_images.shape[0])):
             wandb.log({
                 f"Validation Sample {i} Input": wandb.Image(val_images[i].cpu().numpy().squeeze(), caption=f"Epoch {epoch+1} Input"),
                 f"Validation Sample {i} Ground Truth": wandb.Image(val_masks[i].cpu().numpy().squeeze(), caption=f"Epoch {epoch+1} GT Mask"),
                 f"Validation Sample {i} Prediction": wandb.Image(val_preds[i].squeeze(), caption=f"Epoch {epoch+1} Pred Mask")
             })
+
+        model_save_dir = os.path.join(
+            model_dir,
+            f"SegFormer_HumanFootprint_dataset_{dataset_name}_arch_{architecture}_lr_{learning_rate}_batch_{batch_size}_epoch_{epoch + 1}"
+        )
+        if not os.path.exists(model_save_dir):
+            os.makedirs(model_save_dir)
+
+        # Example: save predictions and ground truth for the first few samples
+        output_dir = os.path.join(model_save_dir, "validation_outputs")
+        os.makedirs(output_dir, exist_ok=True)
+        for i in range(min(3, val_images.shape[0])):
+            image = val_images[i].cpu().numpy().squeeze()
+            gt_mask = val_masks[i].cpu().numpy().squeeze()
+            pred_mask = val_preds[i].squeeze()
+            plt.imsave(os.path.join(output_dir, f"sample_{i}_input.png"), image, cmap='gray')
+            plt.imsave(os.path.join(output_dir, f"sample_{i}_gt.png"), gt_mask, cmap='gray')
+            plt.imsave(os.path.join(output_dir, f"sample_{i}_pred.png"), pred_mask, cmap='gray')
 
         # --- Validation Loop ---
         model.eval()
@@ -227,34 +248,43 @@ def main():
                 batch_val_loss = compute_loss(outputs, masks).item()
                 val_loss += batch_val_loss
         avg_val_loss = val_loss / len(val_loader)
-        print(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
-        wandb.log({"epoch_val_loss": avg_val_loss, "epoch": epoch+1})
+        print(
+            f"Epoch {epoch + 1}/{num_epochs}, Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
+        wandb.log({"epoch_val_loss": avg_val_loss, "epoch": epoch + 1})
         scheduler.step(avg_val_loss)
+
+        # Save the model and validation outputs only if validation loss improves
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            # Build a descriptive model save folder name.
-            model_save_dir = os.path.join(
-                model_dir,
-                f"SegFormer_HumanFootprint_dataset_{dataset_name}_arch_{architecture}_lr_{learning_rate}_batch_{batch_size}_epoch_{epoch+1}_valLoss_{avg_val_loss:.4f}"
-            )
-            if not os.path.exists(model_save_dir):
-                os.makedirs(model_save_dir)
+
+            # Save model weights and configuration
             torch.save(model.state_dict(), os.path.join(model_save_dir, 'pytorch_model_weights.pth'))
             if isinstance(model, nn.DataParallel):
                 model.module.save_pretrained(model_save_dir)
             else:
                 model.save_pretrained(model_save_dir)
             print(f"Model and configuration saved in: {model_save_dir}")
-            shutil.copy(config_path, os.path.join(model_save_dir, f"segformer_epoch_{epoch+1}_config.yaml"))
-            shutil.copy(__file__, os.path.join(model_save_dir, f"segformer_epoch_{epoch+1}_training.py"))
+            shutil.copy(config_path, os.path.join(model_save_dir, f"segformer_epoch_{epoch + 1}_config.yaml"))
+            shutil.copy(__file__, os.path.join(model_save_dir, f"segformer_epoch_{epoch + 1}_training.py"))
             wandb_run_info = {
                 "wandb_run_id": wandb.run.id,
                 "wandb_run_name": wandb.run.name,
                 "wandb_project": wandb.run.project,
                 "wandb_url": wandb.run.url
             }
-            with open(os.path.join(model_save_dir, f"wandb_run_metadata_epoch_{epoch+1}.yaml"), 'w') as f:
+            with open(os.path.join(model_save_dir, f"wandb_run_metadata_epoch_{epoch + 1}.yaml"), 'w') as f:
                 yaml.dump(wandb_run_info, f)
+
+            # Save validation outputs (predictions and ground truth) for a few samples
+            val_output_dir = os.path.join(model_save_dir, "validation_outputs")
+            os.makedirs(val_output_dir, exist_ok=True)
+            for i in range(min(3, val_images.shape[0])):
+                image_np = val_images[i].cpu().numpy().squeeze()
+                gt_mask = val_masks[i].cpu().numpy().squeeze()
+                pred_mask = val_preds[i].squeeze()
+                plt.imsave(os.path.join(val_output_dir, f"sample_{i}_input.png"), image_np, cmap='gray')
+                plt.imsave(os.path.join(val_output_dir, f"sample_{i}_gt.png"), gt_mask, cmap='gray')
+                plt.imsave(os.path.join(val_output_dir, f"sample_{i}_pred.png"), pred_mask, cmap='gray')
         early_stopping(avg_val_loss)
         if early_stopping.early_stop:
             print("Early stopping triggered.")
