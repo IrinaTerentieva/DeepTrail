@@ -13,9 +13,10 @@ import tempfile
 inverted = True  # If True, invert the raster before processing.
 
 # Paths for the input vector (combined original/synthetic) and raster files
-vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/LiDea_pilot_synthetic_trails.gpkg"
-raster_path = "file:///media/irina/My Book1/LiDea_Pilot/nDTM/LideaPilot_10cm_nDTM.tif"
-
+# vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/LiDea_pilot_synthetic_trails.gpkg"
+# raster_path = "file:///media/irina/My Book1/LiDea_Pilot/nDTM/LideaPilot_10cm_nDTM.tif"
+vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails.gpkg"
+input_folder = "/media/irina/My Book/Surmont/nDTM"
 output_tif = raster_path.replace('.tif', 'synth_trails_v4.tif')
 
 # Load the combined vector file (it should have a "trail_id" column)

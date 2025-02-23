@@ -7,24 +7,29 @@ import rasterio
 from rasterio.features import rasterize
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+
+
+################ CODE FOR RECOVERING TRAILS USING THEIR LOCATION FROM SEGFORMERS!
+
 # ------------------------
 # User parameters
 # ------------------------
-input_folder = "/media/irina/My Book/Surmont/nDTM_synth_trails"
+input_folder = "/media/irina/My Book/Surmont/nDTM"
 segformer_folder = "/media/irina/My Book/Surmont/nDTM_10cm_segformer"
 
 # Buffer distance (meters) for label geometry
-buffer_distance_m = 5.0
+buffer_distance_m = 10.0
 
 # Minimum confidence in segformer raster
 confidence_threshold = 3
 
 # Where to put final output
-output_folder = os.path.join(input_folder, "blended_outputs")
+output_folder = os.path.join(input_folder, "blended_with_segformer")
 os.makedirs(output_folder, exist_ok=True)
 
 # Collect all TIFs in input_folder that match *_blended_synth_trails.tif
-tif_paths = glob.glob(os.path.join(input_folder, "*_blended_synth_trails.tif"))
+tif_paths = glob.glob(os.path.join(input_folder, "*.tif"))
+print(tif_paths)
 # Example override for testing a single file:
 # tif_paths = ['/media/irina/My Book/Surmont/nDTM_synth_trails/510_6228_nDTM_blended_synth_trails.tif']
 
@@ -47,9 +52,9 @@ def construct_segformer_path(input_base):
     e.g. 493_6223_nDTM_blended_synth_trails -> 493_6223_nDTM_preds_segformer.tif
     So we replace '_blended_synth_trails' with '_preds_segformer'
     """
-    if "_blended_synth_trails" not in input_base:
+    if "nDTM" not in input_base:
         return None
-    segformer_base = input_base.replace("_blended_synth_trails", "_preds_segformer")
+    segformer_base = input_base.replace("_nDTM", "_nDTM_preds_segformer")
     return os.path.join(segformer_folder, segformer_base + ".tif")
 
 def process_tif(input_raster_path):
@@ -65,45 +70,11 @@ def process_tif(input_raster_path):
         data = src.read(1).astype(np.float32)
 
     height, width = data.shape
-
-    # 2) Find and load the label
-    label_path = construct_label_path(input_raster_path)
-    if not os.path.isfile(label_path):
-        msg = f"  [WARNING] No label .gpkg for {base_name}. Skipping..."
-        print(msg)
-        return msg
-
-    gdf = gpd.read_file(label_path)
-    if gdf.crs != crs:
-        gdf = gdf.to_crs(crs)
-
-    # Filter label to only features with "mode"="burn"
-    if "mode" in gdf.columns:
-        gdf_burn = gdf[gdf["mode"] == "burn"]
-    else:
-        gdf_burn = gdf.iloc[:0]  # empty if no "mode" column
-
-    if not gdf_burn.empty:
-        label_union_burn = gdf_burn.unary_union
-        burn_buffer = label_union_burn.buffer(buffer_distance_m)
-    else:
-        burn_buffer = None
-
-    # Rasterize maskA: 1 = inside buffer of "burn" features
-    if burn_buffer is not None and not burn_buffer.is_empty:
-        maskA = rasterize(
-            [(burn_buffer, 1)],
-            out_shape=(height, width),
-            transform=transform,
-            fill=0,
-            dtype=np.uint8
-        )
-    else:
-        # If no burn geometry, maskA is all zeros
-        maskA = np.zeros((height, width), dtype=np.uint8)
+    maskA = np.zeros((height, width), dtype=np.uint8)
 
     # 3) Segformer raster => *preds_segformer.tif
     segformer_path = construct_segformer_path(base_name)
+    print('segformer_path: ', segformer_path)
     if segformer_path is None or not os.path.isfile(segformer_path):
         msg = f"  [WARNING] No segformer raster found for {base_name}.\n    Expected: {segformer_path}\n    Skipping..."
         print(msg)

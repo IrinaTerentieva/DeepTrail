@@ -14,8 +14,8 @@ def process_tif(args):
     base_tif = os.path.basename(tif_file)
     # Derive corresponding label file name:
     # e.g., "521_6228_nDTM_blended_synth_trails_postblend.tif" -> "521_6228_nDTM_blended_synth_trails.gpkg"
-    if base_tif.endswith("_postblend.tif"):
-        base_label = base_tif.replace("_postblend.tif", ".gpkg")
+    if base_tif.endswith(".tif"):
+        base_label = base_tif.replace(".tif", ".gpkg")
     else:
         base_label = os.path.splitext(base_tif)[0] + ".gpkg"
     label_path = os.path.join(label_dir, base_label)
@@ -122,12 +122,12 @@ def process_tif(args):
 
 def extract_patches_parallel():
     # Directories and parameters
-    tif_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails/blended_outputs"
-    label_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails/labels"
-    patch_size = 512  # patch size in pixels
-    num_random_patches = 40  # number of patches per image
+    tif_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2"
+    label_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/labels"
+    patch_size = 1024  # patch size in pixels
+    num_random_patches = 15  # number of patches per image
 
-    output_dir = f"/home/irina/HumanFootprint/DATA/Training_CNN/synth_tracks_{patch_size}px_10cm"
+    output_dir = f"/home/irina/HumanFootprint/DATA/Training_CNN/synth_tracks_{patch_size}px_10cm_v2"
 
     # Create output directory if needed
     os.makedirs(output_dir, exist_ok=True)

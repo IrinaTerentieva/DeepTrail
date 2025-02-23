@@ -10,9 +10,9 @@ import gc
 import tempfile
 import scipy.ndimage as ndimage
 
-def normalize_nDTM(image):
+def normalize_nDTM(image, std = 0.1):
     """Normalize image to the [0, 1] range."""
-    min_val, max_val = -0.2, 0.2
+    min_val, max_val = -std, std
     image = np.clip(image, min_val, max_val)
     return (image - min_val) / (max_val - min_val)
 
@@ -149,6 +149,8 @@ def load_configuration():
 def load_model(config, base_dir):
     prediction_params = config['prediction_params']
     model_path = os.path.join(base_dir, prediction_params['model_path'])
+
+    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.01_batch_4_epoch_60/pytorch_model_weights.pth'
     print(f"[INFO] Loading Model from: {model_path}")
 
     model_config = config['models']['mit-b2']
@@ -186,7 +188,8 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/home/irina/HumanFootprint/DATA/Training_CNN/synth_tracks_1024px_10cm/64_image.tif'
+    test_image_path = '/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/ndtm/Area_C_combined_ncdtm.tif'
+    # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
     os.makedirs(output_dir, exist_ok=True)

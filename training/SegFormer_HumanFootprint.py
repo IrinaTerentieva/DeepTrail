@@ -156,7 +156,7 @@ def main():
         print(f"Using {torch.cuda.device_count()} GPUs!")
         model = nn.DataParallel(model)
     model.to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1,
                                                      patience=1, threshold=0.0001, cooldown=1)
     class_weights = compute_class_weights(train_loader, 1)
@@ -227,16 +227,22 @@ def main():
         if not os.path.exists(model_save_dir):
             os.makedirs(model_save_dir)
 
-        # Example: save predictions and ground truth for the first few samples
-        output_dir = os.path.join(model_save_dir, "validation_outputs")
-        os.makedirs(output_dir, exist_ok=True)
+        # --- Save Epoch Predictions (always) ---
+        epoch_pred_dir = os.path.join(model_save_dir, f"Predictions")
+        os.makedirs(epoch_pred_dir, exist_ok=True)
         for i in range(min(3, val_images.shape[0])):
-            image = val_images[i].cpu().numpy().squeeze()
+            image_np = val_images[i].cpu().numpy().squeeze()
             gt_mask = val_masks[i].cpu().numpy().squeeze()
             pred_mask = val_preds[i].squeeze()
-            plt.imsave(os.path.join(output_dir, f"sample_{i}_input.png"), image, cmap='gray')
-            plt.imsave(os.path.join(output_dir, f"sample_{i}_gt.png"), gt_mask, cmap='gray')
-            plt.imsave(os.path.join(output_dir, f"sample_{i}_pred.png"), pred_mask, cmap='gray')
+            input_path = os.path.join(epoch_pred_dir, f"ep{epoch+1}_sample_{i}_input.png")
+            gt_path = os.path.join(epoch_pred_dir, f"ep{epoch+1}_sample_{i}_gt.png")
+            pred_path = os.path.join(epoch_pred_dir, f"ep{epoch+1}_sample_{i}_pred.png")
+            plt.imsave(input_path, image_np, cmap='gray')
+            plt.imsave(gt_path, gt_mask, cmap='gray')
+            plt.imsave(pred_path, pred_mask, cmap='gray')
+            print(f"Epoch {epoch+1}: Saved input sample {i} to {input_path}")
+            print(f"Epoch {epoch+1}: Saved GT sample {i} to {gt_path}")
+            print(f"Epoch {epoch+1}: Saved prediction sample {i} to {pred_path}")
 
         # --- Validation Loop ---
         model.eval()

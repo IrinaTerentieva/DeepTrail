@@ -7,7 +7,7 @@ import numpy as np
 from scipy.interpolate import splprep, splev
 
 # --- Settings ---
-spline_smoothing = 1.4  # Smoothing factor for the spline interpolation (increase for stronger smoothing)
+spline_smoothing = 1.1  # Smoothing factor for the spline interpolation (increase for stronger smoothing)
 max_width = 2.8  # Maximum offset width
 # Set smooth flag to True to apply spline smoothing.
 smooth = True
