@@ -56,6 +56,9 @@ def main():
     learning_rate = config['experiments']['learning_rates'][0]
     dataset_name = list(config['experiments']['datasets'].keys())[0]
     dataset_path = os.path.join(base_dir, config['experiments']['datasets'][dataset_name])
+
+    dataset_path = "/media/irina/My Book/Surmont/TrainingCNN/synth_tracks_1024px_10cm_v3"
+
     architecture = config['experiments']['architectures'][0]
     model_config = config['models'][architecture]
     batch_size = config['training']['batch_size']

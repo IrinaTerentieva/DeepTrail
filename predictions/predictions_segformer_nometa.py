@@ -150,7 +150,7 @@ def load_model(config, base_dir):
     prediction_params = config['prediction_params']
     model_path = os.path.join(base_dir, prediction_params['model_path'])
 
-    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.01_batch_4_epoch_60/pytorch_model_weights.pth'
+    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_2/pytorch_model_weights.pth'
     print(f"[INFO] Loading Model from: {model_path}")
 
     model_config = config['models']['mit-b2']
