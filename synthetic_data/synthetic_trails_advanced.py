@@ -15,13 +15,13 @@ from scipy.interpolate import splprep, splev
 
 # --- Options ---
 inverted = False
-burn_probability = 0.7  # Probability that a given trail will be processed in "burn" mode
+burn_probability = 0.8  # Probability that a given trail will be processed in "burn" mode
 
 # "Burn" widths & noise (in pixels)
-burn_min_pixels = 3.5
-burn_max_pixels = 7.5
-burn_random_low = 0.1
-burn_random_high = 0.17
+burn_min_pixels = 4
+burn_max_pixels = 6
+burn_random_low = 0.12
+burn_random_high = 0.15
 
 # If a feature's offset_distance > 2 meters, we raise the min burn width to 6.0 pixels
 conditional_burn_min = 6
@@ -29,12 +29,12 @@ conditional_burn_min = 6
 # "Blend" widths & noise
 blend_min_pixels = 8.0
 blend_max_pixels = 12.0
-blend_random_low = -0.01
-blend_random_high = 0.10
+blend_random_low = 0.02
+blend_random_high = 0.12
 
 # Coarse lumps scale factor for "blend"
 blend_coarse_scale = 0.1
-blend_small_sigma = 2
+blend_small_sigma = 3
 
 # A gap (in pixels) to ensure a few pixels are kept between trails
 gap_pixels = 2
@@ -60,16 +60,51 @@ print(tif_paths)
 # Read trails
 gdf = gpd.read_file(vector_path)
 
-# --- Spline smoothing function ---
-def strong_smooth_geometry(geom, smoothing_factor=50.0, num_points=50, simplify_tolerance=0.5):
+import random
+import numpy as np
+from shapely.geometry import LineString, MultiLineString, Polygon
+from scipy.interpolate import splprep, splev
+
+
+def strong_smooth_geometry(geom, smoothing_level=None):
     """
     Smooths a geometry using a two-step process:
       1. Simplify the geometry to remove small-scale details.
       2. Apply spline interpolation to produce a smooth curve.
+
+    The smoothing_level parameter can be 'low', 'medium', or 'strong'.
+    If not provided, one is chosen randomly with equal probability.
+
+    Preset parameters:
+      - 'low': minimal smoothing (preserves more detail)
+          smoothing_factor = 20, num_points = 100, simplify_tolerance = 0.2
+      - 'medium': moderate smoothing
+          smoothing_factor = 50, num_points = 50, simplify_tolerance = 0.8
+      - 'strong': heavy smoothing (more generalized, fewer points)
+          smoothing_factor = 100, num_points = 20, simplify_tolerance = 1.5
     """
+
+    if smoothing_level == 'low':
+        smoothing_factor = 20
+        num_points = 100
+        simplify_tolerance = 0.2
+    elif smoothing_level == 'medium':
+        smoothing_factor = 100
+        num_points = 20
+        simplify_tolerance = 0.5
+    else:
+        # Default fallback if an unknown level is provided.
+        smoothing_factor = 20
+        num_points = 50
+        simplify_tolerance = 0.2
+
     if geom.is_empty:
         return geom
+
+    # Simplify the geometry first.
     simplified = geom.simplify(simplify_tolerance, preserve_topology=True)
+
+    # Process based on geometry type.
     if simplified.geom_type == 'LineString':
         x, y = simplified.xy
         try:
@@ -80,14 +115,14 @@ def strong_smooth_geometry(geom, smoothing_factor=50.0, num_points=50, simplify_
         except Exception:
             return simplified
     elif simplified.geom_type == 'MultiLineString':
-        smoothed = [strong_smooth_geometry(line, smoothing_factor, num_points, simplify_tolerance)
-                    for line in simplified.geoms]
+        smoothed = [strong_smooth_geometry(line, smoothing_level) for line in simplified.geoms]
         return MultiLineString(smoothed)
     elif simplified.geom_type == 'Polygon':
-        smoothed_exterior = strong_smooth_geometry(simplified.exterior, smoothing_factor, num_points, simplify_tolerance)
+        smoothed_exterior = strong_smooth_geometry(simplified.exterior, smoothing_level)
         return Polygon(smoothed_exterior)
     else:
         return simplified
+
 
 # --- Fractal noise generator for blend areas ---
 def generate_fractal_noise(shape, octaves=4, persistence=0.5, low=blend_random_low, high=blend_random_high):
@@ -105,7 +140,7 @@ for raster_path in tif_paths:
     print(f"[INFO] Processing raster: {raster_path}")
 
     base_name = os.path.basename(raster_path)
-    output_tif = os.path.join(out_folder, base_name.replace('.tif', '_synth_trails_v3.1.tif'))
+    output_tif = os.path.join(out_folder, base_name.replace('.tif', '_synth_trails_v3.2.tif'))
     output_gpkg = output_tif.replace('.tif', '.gpkg')
 
     if os.path.exists(output_gpkg):
@@ -150,10 +185,14 @@ for raster_path in tif_paths:
 
     for tid in trail_ids_sub:
         trail_features = gdf_sub[gdf_sub['trail_id'] == tid]
+
         raw_geom = trail_features.unary_union
-        # Use stronger smoothing by increasing the smoothing factor
-        trail_geometry = strong_smooth_geometry(raw_geom, smoothing_factor=10.0, num_points=200)
-        # If you need even stronger smoothing, try increasing smoothing_factor further.
+
+        smoothing_level = random.choice(['low', 'medium', 'no'])
+        if smoothing_level != 'no':
+            trail_geometry = strong_smooth_geometry(raw_geom, smoothing_level=smoothing_level)
+        else:
+            trail_geometry = raw_geom
 
         offset_distance_attr = 0
         if 'offset_distance' in trail_features.columns:
@@ -187,6 +226,7 @@ for raster_path in tif_paths:
                 "burn_min_in_use": effective_burn_min,
                 "buffer_pixels": width_pixels,
                 "buffer_distance": buffer_distance,
+                "smoothing_level": smoothing_level,
                 "geometry": trail_buffer
             })
 
@@ -207,13 +247,16 @@ for raster_path in tif_paths:
             mask_crop = mask[row_min:row_max, col_min:col_max]
             shape_crop = mask_crop.shape
 
+            # Generate the burn offset values:
             random_field_crop = np.random.uniform(low=burn_random_low, high=burn_random_high, size=shape_crop)
             smooth_subtraction_crop = ndimage.gaussian_filter(random_field_crop, sigma=5)
-
             distance_inside_crop = ndimage.distance_transform_edt(mask_crop)
             max_distance = distance_inside_crop.max() or 1
             gradient_mask_crop = distance_inside_crop / max_distance
             adjusted_subtraction_crop = smooth_subtraction_crop * gradient_mask_crop
+
+            # Save the average burn value for this patch as an attribute:
+            burn_value_avg = np.mean(adjusted_subtraction_crop[mask_crop == 1])
 
             region = (slice(row_min, row_max), slice(col_min, col_max))
             data_modified_region = data_modified[region]
@@ -233,12 +276,16 @@ for raster_path in tif_paths:
             blend_buffer = trail_geometry.buffer(buffer_distance)
             label_records.append({
                 "trail_id": tid,
-                "mode": "blend",
+                "mode": "burn",
                 "offset_distance_attr": offset_distance_attr,
-                "buffer_pixels": blend_pixels,
+                "burn_min_in_use": effective_burn_min,
+                "buffer_pixels": width_pixels,
                 "buffer_distance": buffer_distance,
-                "geometry": blend_buffer
+                "smoothing_level": smoothing_level,
+                "avg_burn_value": burn_value_avg,   # new attribute
+                "geometry": trail_buffer
             })
+
 
             mask = rasterize(
                 [(blend_buffer, 1)],
