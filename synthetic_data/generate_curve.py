@@ -203,6 +203,7 @@ def main():
             new_id += 1
 
     gdf_out = gpd.GeoDataFrame(records, crs=gdf.crs)
+    print(gdf_out.columns)
     gdf_out.to_file(output_gpkg, driver="GPKG")
     print(f"Saved {len(gdf_out)} variant features to {output_gpkg}")
     print(f"Number of unique trails in input: {len(unique_ids)}")
