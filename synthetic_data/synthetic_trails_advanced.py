@@ -18,7 +18,7 @@ inverted = False
 burn_probability = 0.7  # Probability that a given trail will be processed in "burn" mode
 
 # "Burn" widths & noise (in pixels)
-burn_min_pixels = 4.5
+burn_min_pixels = 3.5
 burn_max_pixels = 7.5
 burn_random_low = 0.1
 burn_random_high = 0.17
@@ -46,11 +46,11 @@ max_offset_pixels = 20
 min_offset_threshold = 1.4
 
 # New output folder
-out_folder = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.1"
+out_folder = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.2"
 os.makedirs(out_folder, exist_ok=True)
 
 # Paths for inputs
-vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails.gpkg"
+vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails_narrow.gpkg"
 input_folder = "/media/irina/My Book/Surmont/nDTM/blended_with_segformer"
 tif_paths = glob.glob(os.path.join(input_folder, "*blend.tif"))
 
@@ -61,7 +61,7 @@ print(tif_paths)
 gdf = gpd.read_file(vector_path)
 
 # --- Spline smoothing function ---
-def strong_smooth_geometry(geom, smoothing_factor=50.0, num_points=100, simplify_tolerance=0.5):
+def strong_smooth_geometry(geom, smoothing_factor=50.0, num_points=50, simplify_tolerance=0.5):
     """
     Smooths a geometry using a two-step process:
       1. Simplify the geometry to remove small-scale details.

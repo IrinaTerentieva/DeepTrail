@@ -45,7 +45,7 @@ max_offset_pixels = 20
 min_offset_threshold = 1.4
 
 # Paths
-vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails.gpkg"
+vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails_narrow.gpkg"
 input_folder = "/media/irina/My Book/Surmont/nDTM/blended_with_segformer"
 tif_paths = glob.glob(os.path.join(input_folder, "*blend.tif"))
 

@@ -8,7 +8,7 @@ from scipy.interpolate import splprep, splev
 
 # --- Settings ---
 spline_smoothing = 1.1  # Smoothing factor for the spline interpolation (increase for stronger smoothing)
-max_width = 2.8  # Maximum offset width
+max_width = 2  # Maximum offset width
 # Set smooth flag to True to apply spline smoothing.
 smooth = True
 
@@ -169,6 +169,6 @@ gdf_combined = gpd.GeoDataFrame(gdf_combined, geometry='geometry', crs=gdf.crs)
 print("Columns in combined GeoDataFrame:", gdf_combined.columns.tolist())
 
 # Save the combined GeoDataFrame to a GeoPackage.
-output_path_combined = os.path.join(output_folder, f"{name}_synthetic_trails.gpkg")
+output_path_combined = os.path.join(output_folder, f"{name}_synthetic_trails_narrow.gpkg")
 gdf_combined.to_file(output_path_combined, driver="GPKG")
 print("Combined file saved to:", output_path_combined)
