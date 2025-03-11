@@ -150,7 +150,7 @@ def load_model(config, base_dir):
     prediction_params = config['prediction_params']
     model_path = os.path.join(base_dir, prediction_params['model_path'])
 
-    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11/pytorch_model_weights.pth'
+    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_12/pytorch_model_weights.pth'
     print(f"[INFO] Loading Model from: {model_path}")
 
     model_config = config['models']['mit-b2']
@@ -192,6 +192,7 @@ def run_prediction():
     # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
+    output_dir ='/home/irina/HumanFootprint/DATA/Test_Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_12'
     os.makedirs(output_dir, exist_ok=True)
 
     patch_size = prediction_params['patch_size']

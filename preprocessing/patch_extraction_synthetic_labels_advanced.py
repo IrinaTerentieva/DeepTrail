@@ -171,12 +171,12 @@ def process_tif(args):
 
 def extract_patches_parallel():
     # Directories and parameters.
-    tif_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.1"
-    label_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.1/labels"
+    tif_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.2"
+    label_dir = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.2/labels"
     patch_size = 1024  # patch size in pixels.
     num_random_patches = 40  # number of patches per image.
 
-    output_dir = f"/media/irina/My Book/Surmont/TrainingCNN/synth_tracks_{patch_size}px_10cm_v3.1"
+    output_dir = f"/media/irina/My Book/Surmont/TrainingCNN/synth_tracks_{patch_size}px_10cm_v3.2"
 
     os.makedirs(output_dir, exist_ok=True)
 

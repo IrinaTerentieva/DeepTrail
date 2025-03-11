@@ -35,7 +35,7 @@ gap_pixels = 2
 max_offset_pixels = 20
 min_offset_threshold = 1.4
 
-out_folder = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.2"
+out_folder = "/media/irina/My Book/Surmont/nDTM_synth_trails_v.3.22"
 os.makedirs(out_folder, exist_ok=True)
 
 vector_path = "/home/irina/HumanFootprint/DATA/manual/intermediate/Surmont_synthetic_trails_narrow.gpkg"
@@ -161,7 +161,7 @@ for raster_path in tif_paths:
     print(f"[INFO] Processing raster: {raster_path}")
 
     base_name = os.path.basename(raster_path)
-    output_tif = os.path.join(out_folder, base_name.replace('.tif', '_synth_trails_v3.2.tif'))
+    output_tif = os.path.join(out_folder, base_name.replace('.tif', '_synth_trails_v3.22.tif'))
     output_gpkg = output_tif.replace('.tif', '.gpkg')
 
     if os.path.exists(output_gpkg):
@@ -212,7 +212,7 @@ for raster_path in tif_paths:
     # ----------------------------------------------------------------
     for tid in trail_ids_sub:
         trail_features = gdf_sub[gdf_sub['trail_id'] == tid]
-        raw_geom = trail_features.unary_all()
+        raw_geom = trail_features.union_all()
 
         smoothing_level = random.choice(['low', 'medium', 'no'])
         if smoothing_level != 'no':
@@ -350,7 +350,7 @@ for raster_path in tif_paths:
     # ==============
     if not gdf_sub.empty and len(gdf_extra) > 0:
         # pick some random extras
-        n_extras = min(5, len(gdf_extra))
+        n_extras = min(10, 15)
         chosen_extras = gdf_extra.sample(n=n_extras)
 
         for idx, row_extra in chosen_extras.iterrows():
@@ -370,7 +370,7 @@ for raster_path in tif_paths:
 
             # Force BURN, no smoothing
             # => Use max=5 for extra trails
-            width_pixels = random.uniform(burn_min_pixels, 5)
+            width_pixels = random.uniform(burn_min_pixels, 6)
             buffer_distance = width_pixels * pixel_size
 
             new_buffer = placed_geom.buffer(buffer_distance)
