@@ -100,7 +100,7 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
         scaled_prediction = (full_prediction * 100).astype(np.uint8)
 
         # Prepare output path
-        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trackformer.tif'
+        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trackformer_ep11_v.3.tif'
         output_path = os.path.join(output_dir, output_filename)
 
         # Build updated profile for uint8 output
@@ -150,7 +150,7 @@ def load_model(config, base_dir):
     prediction_params = config['prediction_params']
     model_path = os.path.join(base_dir, prediction_params['model_path'])
 
-    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_12/pytorch_model_weights.pth'
+    model_path = '/home/irina/HumanFootprint/Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11_v.3/pytorch_model_weights.pth'
     print(f"[INFO] Loading Model from: {model_path}")
 
     model_config = config['models']['mit-b2']
@@ -188,11 +188,11 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/ndtm/'
+    test_image_path = '/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/nDTM_mosaic/'
     # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
-    output_dir ='/home/irina/HumanFootprint/DATA/Test_Models/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_12'
+    output_dir ='/media/irina/My Book/Surmont/Products/Trails/SegFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11_v.3'
     os.makedirs(output_dir, exist_ok=True)
 
     patch_size = prediction_params['patch_size']
