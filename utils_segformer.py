@@ -91,7 +91,7 @@ class TrailsDataset(Dataset):
 
         # Check the image and mask shape
         if image.shape != mask.shape:
-            print(f"Before AUGM >> Size mismatch: {img_path}, Image size: {image.shape}, Mask size: {mask.shape}")
+            print(f"Before AUGM >> Size mismatch: {image_path}, Image size: {image.shape}, Mask size: {mask.shape}")
 
         # Ensure the image is a tensor
         if not isinstance(image, torch.Tensor):
@@ -527,3 +527,198 @@ def save_image_mask_pair(image, mask, idx, figures_dir):
 
     return pair_figure_path
 
+
+import os
+import torch
+import torch.nn.functional as F
+import torch.nn as nn
+import rasterio
+import numpy as np
+from torch.utils.data import Dataset
+from tqdm import tqdm
+import gc
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from collections import Counter
+from scipy.ndimage import label
+import matplotlib.pyplot as plt
+
+
+# ------------------- Helper Function -------------------
+def normalize_nDTM(image, std=0.5):
+    """
+    Normalize the image to the [0, 1] range.
+    - Replace NaNs with 0.
+    - Clip values to the range [-std, std].
+    - Normalize to [0, 1].
+    """
+    image = np.nan_to_num(image, nan=0.0)
+    min_val = -std
+    max_val = std
+    image = np.clip(image, min_val, max_val)
+    image = (image - min_val) / (max_val - min_val)
+    return image
+
+
+# ------------------- TrailsDataset Class -------------------
+import os
+import torch
+import torch.nn.functional as F
+import torch.nn as nn
+import rasterio
+import numpy as np
+from torch.utils.data import Dataset
+from tqdm import tqdm
+import gc
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from collections import Counter
+from scipy.ndimage import label
+import matplotlib.pyplot as plt
+
+
+def normalize_RGB(image):
+    """
+    Normalize an RGB image to the [0, 1] range.
+    Assumes the input is in the range [0, 255] and in HWC format.
+    """
+    image = np.clip(image, 0, 255)
+    return image / 255.0
+
+
+class WetTrailsDataset(Dataset):
+    """
+    A PyTorch Dataset for handling RGB image and mask data.
+    It reads '_image.tif' files (assumed to be RGB) and corresponding '_label.tif' files.
+    Default augmentations are applied if none are provided.
+
+    Args:
+        data_dir (str): Directory containing image and label files.
+        threshold (int, optional): Threshold to binarize the mask. Default is 0.
+        min_area (int, optional): Minimum area (in pixels) for connected regions to keep. Default is 100.
+        skip_threshold (float, optional): Minimum label area ratio required to keep a sample. Default is 0.01.
+        transform (albumentations.Compose, optional): Augmentation pipeline.
+    """
+
+    def __init__(self, data_dir, threshold=0, min_area=100, skip_threshold=0.01, transform=None):
+        self.data_dir = data_dir
+        self.threshold = threshold
+        self.min_area = min_area
+        self.skip_threshold = skip_threshold
+
+        # If no transformation pipeline is provided, build the default augmentations.
+        if transform is None:
+            self.transform = self.build_default_augmentations()
+        else:
+            self.transform = transform
+
+        # Collect valid image files with a corresponding label file and sufficient mask area.
+        all_image_files = [f for f in os.listdir(data_dir) if f.endswith('_image.tif')]
+        self.valid_files = []
+        for image_file in all_image_files:
+            label_file = image_file.replace('_image.tif', '_label.tif')
+            label_path = os.path.join(data_dir, label_file)
+            if not os.path.exists(label_path):
+                continue
+            try:
+                with rasterio.open(label_path) as src:
+                    mask = src.read(1).astype(np.uint8)
+            except Exception as e:
+                print(f"Error reading label file {label_path}: {e}")
+                continue
+
+            mask = np.where(mask > self.threshold, 1, 0).astype(np.uint8)
+            mask = self._filter_small_regions(mask)
+            ratio = np.sum(mask) / mask.size
+            if ratio >= self.skip_threshold:
+                self.valid_files.append(image_file)
+            else:
+                print(
+                    f"Skipping {image_file} because label area ratio ({ratio:.4f}) is below threshold {self.skip_threshold}")
+
+    def __len__(self):
+        return len(self.valid_files)
+
+    def __getitem__(self, idx):
+        image_file = self.valid_files[idx]
+        label_file = image_file.replace('_image.tif', '_label.tif')
+        image_path = os.path.join(self.data_dir, image_file)
+        label_path = os.path.join(self.data_dir, label_file)
+
+        # Read the RGB image.
+        with rasterio.open(image_path) as img_src:
+            # Read all channels (typically shape: (channels, height, width)).
+            image = img_src.read().astype(np.float32)
+            nodata = img_src.nodata
+            if nodata is not None:
+                image[image == nodata] = 0
+            # Convert from CHW to HWC for Albumentations.
+            if image.shape[0] > 1:
+                image = np.transpose(image, (1, 2, 0))
+            else:
+                image = np.expand_dims(image[0], axis=-1)
+
+            # If the image has more than 3 channels (e.g. RGBA), keep only the first 3 (RGB).
+            if image.shape[2] > 3:
+                image = image[:, :, :3]
+            image = normalize_RGB(image)
+
+        # Read the label/mask (assumed single-channel).
+        with rasterio.open(label_path) as label_src:
+            mask = label_src.read(1).astype(np.uint8)
+            nodata = label_src.nodata
+            if nodata is not None:
+                mask[mask == nodata] = 0
+            mask = np.where(mask > self.threshold, 1, 0).astype(np.uint8)
+            mask = self._filter_small_regions(mask)
+
+        # Check shape consistency: image should have shape (H, W, C) and mask (H, W).
+        if image.shape[:2] != mask.shape:
+            print(f"Size mismatch: {image_path}, Image shape: {image.shape}, Mask shape: {mask.shape}")
+
+        # Apply augmentations if provided.
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image = augmented["image"]
+            mask = augmented["mask"]
+        else:
+            # If no augmentation, convert image from HWC to CHW.
+            if image.ndim == 3:
+                image = torch.from_numpy(np.transpose(image, (2, 0, 1))).float()
+            else:
+                image = torch.from_numpy(image).unsqueeze(0).float()
+            mask = torch.from_numpy(mask).long()
+
+        return image, mask
+
+    def _filter_small_regions(self, mask):
+        """
+        Filter out connected regions in the mask smaller than the specified minimum area.
+        """
+        labeled_mask, num_features = label(mask)
+        sizes = np.bincount(labeled_mask.ravel())
+        large_regions = np.zeros_like(mask, dtype=np.uint8)
+        for region_id, size in enumerate(sizes):
+            if region_id != 0 and size >= self.min_area:
+                large_regions[labeled_mask == region_id] = 1
+        return large_regions
+
+    @staticmethod
+    def build_default_augmentations():
+        """
+        Build a default augmentation pipeline using Albumentations.
+        Default augmentations include:
+          - Random brightness/contrast adjustments
+          - Color jitter (Hue, Saturation, Value changes)
+          - Horizontal and vertical flips
+          - Random rotation by 90° (i.e. 90, 180, or 270 degrees)
+          - Conversion to PyTorch tensors
+        """
+        augmentations = []
+        augmentations.append(A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5))
+        augmentations.append(A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5))
+        augmentations.append(A.HorizontalFlip(p=0.5))
+        augmentations.append(A.VerticalFlip(p=0.5))
+        augmentations.append(A.RandomRotate90(p=0.5))
+        augmentations.append(ToTensorV2())
+        return A.Compose(augmentations)
