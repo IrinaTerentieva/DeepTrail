@@ -295,6 +295,8 @@ def run_prediction():
     output_dir = '/media/irina/My Book/Surmont/Products/Trails/best_segformer_epoch_49_val_loss_0.0582'
     os.makedirs(output_dir, exist_ok=True)
 
+
+
     patch_size = prediction_params['patch_size']
     overlap_size = prediction_params['overlap_size']
     threshold = 0.1  # or 0.3, up to you
