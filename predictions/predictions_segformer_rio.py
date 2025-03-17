@@ -115,14 +115,9 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, stride)
             "band": [1]
         }
     )
-    # Copy over the spatial metadata (CRS and transform)
-    new_da.rio.write_crs(ds.rio.crs, inplace=True)
-    new_da.rio.write_transform(ds.rio.transform(), inplace=True)
-    # Explicitly set a valid NoData value within 0-255 (here, we use 255)
-    new_da.rio.write_nodata(255, inplace=True)
 
-    # Save the new DataArray to file
-    new_da.rio.to_raster(output_path, compress="lzw", dtype="uint8")
+    # Use patch-based saving with `rioxarray`
+    save_large_raster_patches_riox(new_da, output_path, patch_size=512)
 
     # Cleanup
     del accumulation, count_array, full_prediction, bin_mask, labeled, scaled_prediction, new_da
@@ -201,6 +196,39 @@ def run_prediction():
         sliding_window_prediction(img_path, model, output_dir, patch_size, stride)
 
 
+def save_large_raster_patches_riox(image_da, output_path, patch_size=512):
+    """ Save large raster in patches using `rioxarray` to avoid memory issues. """
+
+    height, width = image_da.shape[-2:]  # Extract spatial dimensions
+    transform = image_da.rio.transform()
+    crs = image_da.rio.crs
+    dtype = "uint8"
+
+    # Ensure NoData is properly set (255 is a good value for uint8 rasters)
+    image_da = image_da.rio.write_nodata(255)
+
+    # Create an empty raster by writing an initial empty array
+    empty_array = np.full((1, height, width), 255, dtype=dtype)  # 255 as NoData
+    empty_da = xr.DataArray(empty_array, dims=["band", "y", "x"], coords=image_da.coords)
+
+    # empty_da.rio.write_crs(crs, inplace=True)
+    empty_da.rio.write_transform(transform, inplace=True)
+    empty_da.rio.to_raster(output_path, dtype=dtype, compress="lzw")
+
+    # Now, iterate through patches and overwrite corresponding areas
+    for i in range(0, height, patch_size):
+        for j in range(0, width, patch_size):
+            patch = image_da[:, i:i + patch_size, j:j + patch_size]
+
+            if np.any(patch.values > 0):  # Avoid empty patches
+                patch.rio.to_raster(output_path, window=((i, i + patch_size), (j, j + patch_size)), dtype=dtype)
+
+            print(f"[INFO] Saved patch: Row {i} Col {j}")
+
+    print(f"[INFO] Final raster saved to {output_path}")
+
+
+
 def main():
     print("[INFO] Starting Segformer Prediction Flow")
     run_prediction()
@@ -209,3 +237,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+print('Saving fails')
