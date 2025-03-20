@@ -1,3 +1,11 @@
+hf_model/
+*.bin
+*.pth
+*.gpkg
+hf_model/
+*.bin
+*.png
+*.dat
 # Ignore all JSON files
 *.json
 
@@ -60,4 +68,3 @@ wandb/
 *.vrt
 *.img
 *.map
-

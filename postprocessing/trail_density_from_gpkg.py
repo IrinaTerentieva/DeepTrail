@@ -1,32 +1,39 @@
 import os
+import glob
 import geopandas as gpd
 import numpy as np
 import rasterio
-from dask.config import paths
 from rasterio.features import rasterize
 from rasterio.transform import from_origin
+from rasterio.warp import reproject, Resampling
 from tqdm import tqdm
 from multiprocessing import Pool
 
 # === PARAMETERS (Centralized for easy changes) ===
 
-path = "file:///media/irina/My Book/Surmont/Products/Trails/trailformer_epoch_31_val_loss_0.0592.gpkg"
-name = 'trailformer'
+# Uncomment the desired path and name
+# path = "file:///media/irina/My Book/Surmont/Products/Trails/trailformer_epoch_31_val_loss_0.0592.gpkg"
+# name = 'trailformer'
 
-path = "file:///media/irina/My Book/Surmont/Products/Trails/TrackFormer_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11_v.3.gpkg"
-name = 'trackformer'
+# path = "file:///media/irina/My Book/Surmont/Products/Trails/TrackFormer_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11_v.3.gpkg"
+# name = 'trackformer'
+
+path = 'file:///media/irina/My Book/Surmont/Products/Trails/WetFormer_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_23.gpkg'
+name = 'wetformers'
+
+cell_size = 20
 
 PARAMS = {
     "trails_path": path,
-    "raster_output_folder": "/media/irina/My Book/Surmont/Products/Trails/Rasterized_Trails",
-    "density_output_folder": "/media/irina/My Book/Surmont/Products/Trails/Density_Outputs",
+    "raster_output_folder": "/media/irina/My Book/Surmont/intermediate/Rasterized_Trails",
+    "density_output_folder": "/media/irina/My Book/Surmont/intermediate/Density_Outputs",
+    "final_output_tif": f"/media/irina/My Book/Surmont/Products/Trails/{name}_Density_Map_{cell_size}m.tif",
     "raster_resolution": 1,  # Trail raster resolution in meters
-    "cell_size": 5,  # Density output cell size in meters
-    "num_workers": 16,  # Number of CPU cores to use
-    "trail_threshold": 20,  # Filter trails with 'value' > threshold
+    "cell_size": cell_size,        # Density output cell size in meters
+    "num_workers": 16,     # Number of CPU cores to use
+    "trail_threshold": 5,  # Filter trails with 'value' > threshold
     "name": name
 }
-
 
 # Create output directories
 os.makedirs(PARAMS["raster_output_folder"], exist_ok=True)
@@ -69,10 +76,10 @@ def rasterize_trails_main():
 
     # Split trails into chunks for multiprocessing
     num_subsets = PARAMS["num_workers"] * 2
-    name = PARAMS["name"]
-
     trails_split = np.array_split(trails, num_subsets)
-    output_tifs = [os.path.join(PARAMS["raster_output_folder"], f"{name}_part_{i}.tif") for i in range(len(trails_split))]
+
+    output_tifs = [os.path.join(PARAMS["raster_output_folder"], f"{PARAMS['name']}_part_{i}.tif")
+                   for i in range(len(trails_split))]
 
     print(f"Rasterizing {len(trails_split)} subsets with {PARAMS['num_workers']} CPUs...")
 
@@ -91,9 +98,9 @@ def compute_density_raster(tif_path):
         with rasterio.open(tif_path) as src:
             profile = src.profile.copy()
             transform = src.transform
-            raster_res = src.res[0]  # Pixel resolution (assuming square pixels)
+            raster_res = src.res[0]
             width, height = src.width, src.height
-            minx, maxy = transform.c, transform.f  # Upper-left corner
+            minx, maxy = transform.c, transform.f
             maxx = minx + (width * raster_res)
             miny = maxy - (height * raster_res)
 
@@ -109,7 +116,7 @@ def compute_density_raster(tif_path):
             # Initialize density raster
             density_raster = np.zeros((out_height, out_width), dtype=np.float32)
 
-            # Compute density
+            # Compute density for each cell
             for i in range(out_height):
                 for j in range(out_width):
                     x_start = j * scale_factor
@@ -125,9 +132,11 @@ def compute_density_raster(tif_path):
                     density_raster[i, j] = density
 
         # Save density raster
-        output_path = os.path.join(PARAMS["density_output_folder"], os.path.basename(tif_path).replace(".tif", "_density.tif"))
+        output_path = os.path.join(PARAMS["density_output_folder"],
+                                   os.path.basename(tif_path).replace(".tif", "_density.tif"))
         profile.pop("transform", None)
-        profile.update(dtype="float32", compress="lzw", count=1, height=out_height, width=out_width)
+        profile.update(dtype="float32", compress="lzw", count=1,
+                       height=out_height, width=out_width)
 
         with rasterio.open(output_path, 'w', **profile, transform=out_transform) as dst:
             dst.write(density_raster, 1)
@@ -139,7 +148,8 @@ def compute_density_raster(tif_path):
 
 def compute_density_main():
     """Computes density for all rasterized trail files using multiprocessing."""
-    tif_files = [os.path.join(PARAMS["raster_output_folder"], f) for f in os.listdir(PARAMS["raster_output_folder"]) if f.endswith(".tif")]
+    tif_files = [os.path.join(PARAMS["raster_output_folder"], f)
+                 for f in os.listdir(PARAMS["raster_output_folder"]) if f.endswith(".tif")]
     print(f"Found {len(tif_files)} raster files for density calculation.")
 
     with Pool(PARAMS["num_workers"]) as pool:
@@ -148,20 +158,92 @@ def compute_density_main():
 
     print(f"Finished density processing. {len([r for r in results if r])} density rasters saved.")
 
-    # Delete temporary rasterized trails
-    print("Deleting intermediate rasterized trail files...")
-    for tif in tif_files:
-        os.remove(tif)
-    print("All temporary files deleted.")
+    # Merge all density rasters into a single one (max value per pixel)
+    merge_density_rasters()
+
+def merge_density_rasters():
+    """Merges all density rasters into a single one by taking the max value per pixel after aligning to a common grid."""
+    density_tifs = [os.path.join(PARAMS["density_output_folder"], f)
+                    for f in os.listdir(PARAMS["density_output_folder"]) if f.endswith("_density.tif")]
+
+    if not density_tifs:
+        print("No density files found for merging.")
+        return
+
+    # Calculate the union of bounds across all density rasters.
+    bounds_list = []
+    for tif in density_tifs:
+        with rasterio.open(tif) as src:
+            bounds_list.append(src.bounds)
+
+    # Compute union bounds (minx, miny, maxx, maxy)
+    minx = min(b.left for b in bounds_list)
+    miny = min(b.bottom for b in bounds_list)
+    maxx = max(b.right for b in bounds_list)
+    maxy = max(b.top for b in bounds_list)
+
+    # Use the resolution and CRS from the first density raster.
+    with rasterio.open(density_tifs[0]) as src:
+        resolution = src.res[0]
+        dst_crs = src.crs
+    # Define target grid dimensions and transform.
+    out_width = int(np.ceil((maxx - minx) / resolution))
+    out_height = int(np.ceil((maxy - miny) / resolution))
+    out_transform = from_origin(minx, maxy, resolution, resolution)
+
+    # Initialize merged array.
+    merged = np.zeros((out_height, out_width), dtype=np.float32)
+
+    # Reproject each density raster to the common grid and merge.
+    for tif in tqdm(density_tifs, desc="Merging Density Layers"):
+        with rasterio.open(tif) as src:
+            src_array = src.read(1)
+            dst_array = np.zeros((out_height, out_width), dtype=np.float32)
+            reproject(
+                source=src_array,
+                destination=dst_array,
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=out_transform,
+                dst_crs=dst_crs,
+                resampling=Resampling.nearest
+            )
+            # Merge using maximum value per pixel.
+            merged = np.maximum(merged, dst_array)
+
+    # Use the stored profile from the first file and update it.
+    with rasterio.open(density_tifs[0]) as src:
+        profile = src.profile.copy()
+    profile.update({
+        "driver": "GTiff",
+        "height": out_height,
+        "width": out_width,
+        "transform": out_transform,
+        "dtype": "float32"
+    })
+
+    # Save final merged raster.
+    with rasterio.open(PARAMS["final_output_tif"], 'w', **profile) as dst:
+        dst.write(merged, 1)
+
+    print(f"✅ Final density raster saved at: {PARAMS['final_output_tif']}")
+
+def remove_intermediate_files():
+    """Removes all .tif files from the raster and density output folders."""
+    for folder in [PARAMS["raster_output_folder"], PARAMS["density_output_folder"]]:
+        tif_files = glob.glob(os.path.join(folder, "*.tif"))
+        for tif in tif_files:
+            try:
+                os.remove(tif)
+                print(f"Removed: {tif}")
+            except Exception as e:
+                print(f"Error removing {tif}: {e}")
 
 ### MAIN EXECUTION ###
 if __name__ == "__main__":
     print("🚀 Starting Trail Rasterization & Density Computation Pipeline 🚀")
-
-    # Step 1: Rasterize Trails
     rasterize_trails_main()
-
-    # Step 2: Compute Density from Rasterized Trails
     compute_density_main()
-
+    # After the final density map is produced, remove intermediate .tif files.
+    remove_intermediate_files()
     print("✅ All processes completed successfully!")
