@@ -27,6 +27,7 @@ PARAMS = {
     "name": name
 }
 
+
 # Create output directories
 os.makedirs(PARAMS["raster_output_folder"], exist_ok=True)
 os.makedirs(PARAMS["density_output_folder"], exist_ok=True)
