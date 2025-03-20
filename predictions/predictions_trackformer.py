@@ -303,6 +303,7 @@ def run_prediction():
 
     os.makedirs(output_dir, exist_ok=True)
 
+
     patch_size = prediction_params['patch_size']
     overlap_size = prediction_params['overlap_size']
     threshold = 0.1  # or 0.3, up to you
