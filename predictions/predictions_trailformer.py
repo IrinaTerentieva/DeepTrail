@@ -37,7 +37,7 @@ def generate_patch_indices(size, patch_size, overlap_size):
     indices = sorted(set(indices))
     return indices
 
-def normalize_nDTM(image, std=0.1):
+def normalize_nDTM(image, std=1):
     """Normalize image to the [0, 1] range."""
     min_val, max_val = -std, std
     image = np.clip(image, min_val, max_val)
@@ -175,7 +175,7 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, overlap
         # ---------------------------------------
         # 2) CHUNK-BASED FINAL WRITING TO DISK
         # ---------------------------------------
-        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trailformer_ep49.tif'
+        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trailformer_ep31.tif'
         output_path = os.path.join(output_dir, output_filename)
 
         new_profile = src.profile.copy()
@@ -250,10 +250,11 @@ def load_model(config, base_dir):
     model_path = os.path.join(base_dir, prediction_params['model_path'])
 
     # Overwrite the actual path if needed
-    model_path = '/home/irina/HumanFootprint/Models/best_segformer_epoch_49_val_loss_0.0582/pytorch_model_weights.pth'
+    model_path = '/home/irina/HumanFootprint/HF_models/trailformer_epoch_31_val_loss_0.0592/pytorch_model_weights.pth'
     print(f"[INFO] Loading Model from: {model_path}")
 
-    model_config = config['models']['mit-b2']
+    model_config = config['models']['mit-b3']
+
     config_obj = SegformerConfig(
         num_labels=1,
         depths=model_config['depths'],
@@ -277,6 +278,15 @@ def load_model(config, base_dir):
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Use weights_only=True to restrict pickle execution.
+    state_dict = torch.load(model_path, map_location=device, weights_only=True)
+
+    # Load the state dict with strict=False to ignore unexpected keys.
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    print("Missing keys:", missing_keys)
+    print("Unexpected keys:", unexpected_keys)
+
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     model.to(device)
@@ -288,11 +298,11 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/nDTM_mosaic/'
+    test_image_path = '/media/irina/data/Kirby/nDTM/Airborne/Kirby_nDTM10cm_mean6m.tif'
     # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
-    output_dir = '/media/irina/My Book/Surmont/Products/Trails/best_segformer_epoch_49_val_loss_0.0582'
+    output_dir = '/media/irina/My Book/Surmont/Products/Trails/trailformer_epoch_31_val_loss_0.0592'
     os.makedirs(output_dir, exist_ok=True)
 
 

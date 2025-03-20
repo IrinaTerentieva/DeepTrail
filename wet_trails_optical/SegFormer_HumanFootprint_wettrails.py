@@ -46,7 +46,7 @@ def forward_with_checkpoint(model, pixel_values, labels=None):
 
 def main():
     # --- Load Configuration ---
-    base_dir = "/home/irina/HumanFootprint"
+    base_dir = "/"
     config_path = os.path.join(base_dir, 'config_segformer.yaml')
     print(f"Loading configuration from {config_path}")
     with open(config_path, 'r') as f:
