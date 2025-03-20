@@ -175,7 +175,7 @@ def sliding_window_prediction(image_path, model, output_dir, patch_size, overlap
         # ---------------------------------------
         # 2) CHUNK-BASED FINAL WRITING TO DISK
         # ---------------------------------------
-        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trailformer_ep18_v.3.22.tif'
+        output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trailformer_ep18_v.3.22upd.tif'
         # output_filename = os.path.splitext(os.path.basename(image_path))[0] + '_trailformer_ep11_v.3.tif'
 
         output_path = os.path.join(output_dir, output_filename)
@@ -293,12 +293,12 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/media/irina/My Book1/Conoco/DATA/Drone_PPC_2024/nDTM_mosaic/'
+    test_image_path = '/media/irina/data/ndtm_original/'
     # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
-    test_image_path = '/media/irina/data/Kirby/nDTM/Airborne/Kirby_nDTM10cm_mean6m.tif'
+    # test_image_path = '/media/irina/data/Kirby/nDTM/Airborne/Kirby_nDTM10cm_mean6m.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
-    output_dir = '/media/irina/data/Kirby/Products/Trails/Kirby_nDTM10cm_mean6m_TrackFormer_epoch_18_v.3.22'
+    output_dir = '/media/irina/data/Kirby/Products/Trails/Kirby_nDTM10cm_mean6m_TrackFormer_epoch_18_v.3.22upd'
     # output_dir = '/media/irina/My Book/Surmont/Products/Trails/TrackFormer_HumanFootprint_dataset_1024_nDTM10cm_arch_mit-b2_lr_0.001_batch_4_epoch_11_v.3'
 
     os.makedirs(output_dir, exist_ok=True)
