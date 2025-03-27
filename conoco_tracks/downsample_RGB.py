@@ -61,7 +61,7 @@ def process_file_worker(filename, input_folder, output_folder):
 
 
 def main():
-    input_folder = "/media/irina/data/tmp"
+    input_folder = "/media/irina/data/ortho_original"
     output_folder = input_folder + "_10cm"
 
     if not os.path.exists(output_folder):

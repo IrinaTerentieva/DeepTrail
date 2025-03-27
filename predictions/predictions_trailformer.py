@@ -298,11 +298,16 @@ def run_prediction():
     prediction_params = config['prediction_params']
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
     # Overwrite with your actual test image path if needed
-    test_image_path = '/media/irina/data/Kirby/nDTM/Airborne/Kirby_nDTM10cm_mean6m.tif'
-    # test_image_path = '/media/irina/My Book/Surmont/nDTM_synth_trails/nDTM_10cm_trails_v2/502_6223_nDTM_blended_synth_trails_v5.tif'
+    test_image_path = '/media/irina/data/ndtm_original'
+    test_image_path = '/media/irina/My Book/Carson/Woodlot/1-4_LiDAR_Derivatives/Sandhill_Woodlot_ndtm.tif'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
-    output_dir = '/media/irina/My Book/Surmont/Products/Trails/trailformer_epoch_31_val_loss_0.0592'
+    output_dir = '/media/irina/My Book/Carson/Woodlot/trailformer_epoch_31_val_loss_0.0592'
+
+
+    test_image_path = '/media/irina/My Book/Carson/WanderingRiver/4_LiDAR_Derivatives/nDTM'
+    output_dir = '/media/irina/My Book/Carson/WanderingRiver/trailformer_epoch_31_val_loss_0.0592'
+
     os.makedirs(output_dir, exist_ok=True)
 
 

@@ -189,10 +189,10 @@ def run_prediction():
     test_image_path = os.path.join(base_dir, prediction_params['test_image_path'])
 
     ### **********************
-    test_image_path = '/media/irina/data/tmp_10cm/Area_E_polygon0-1_2cm.tif'
+    test_image_path = '/media/irina/My Book/Conoco/DATA/Orthos/3_Orthomosaics_10cm/PredictMe_10cm'
 
     output_dir = os.path.join(base_dir, prediction_params['output_dir'])
-    output_dir = '/media/irina/My Book1/Conoco/DATA/Products/WetTrails'
+    output_dir = '/media/irina/My Book1/Conoco/DATA/Products/WetTrails_upd'
     os.makedirs(output_dir, exist_ok=True)
     patch_size = prediction_params['patch_size']
     overlap_size = prediction_params['overlap_size']
