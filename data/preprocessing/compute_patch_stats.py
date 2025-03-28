@@ -28,7 +28,7 @@ def compute_distribution(image_path, label_path):
 def main():
     # --- Set Directories and Parameters (no YAML) ---
     # Base directory of your project
-    base_dir = "/home/irina/HumanFootprint"
+    base_dir = "/"
 
     # Directory containing your training images and label files.
     # For example, images are named like: "64_image.tif" and labels "64_label.tif"

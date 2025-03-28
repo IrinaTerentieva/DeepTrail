@@ -3,7 +3,7 @@ import sys
 import gc
 gc.collect()
 
-sys.path.append('/home/irina/HumanFootprint/Models/custom_unet')
+sys.path.append('/models/custom_unet')
 sys.path.append('/home/irina.terenteva/HumanFootprint/Models/custom_unet')
 sys.path.append('/home/irina.terenteva/HumanFootprint/Models')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

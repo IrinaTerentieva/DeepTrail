@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import wandb
 from torch.utils.checkpoint import checkpoint
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Add the parent directory (where utils_segformer.py is located) to the system path.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -74,9 +78,11 @@ def main():
     use_checkpoint = config['training'].get('use_checkpoint', False)
 
     # --- Initialize WandB ---
-    wandb_key_path = os.path.join(base_dir, 'Scripts', 'training', 'wandb_key.txt')
-    with open(wandb_key_path, 'r') as f:
-        wandb_key = f.read().strip()
+
+    wandb_key = os.getenv("WANDB_KEY")
+    # wandb_key_path = os.path.join(base_dir, 'Scripts', 'training', 'wandb_key.txt')
+    # with open(wandb_key_path, 'r') as f:
+    #     wandb_key = f.read().strip()
     wandb.login(key=wandb_key)
     run_name = f"{config['logging']['project_name']}_dataset_{dataset_name}_arch_{architecture}_lr_{learning_rate}_batch_{batch_size}"
     wandb.init(project=config['logging']['project_name'], name=run_name)

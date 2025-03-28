@@ -13,7 +13,7 @@ from multiprocessing import Pool
 # ------------------------------------------------------------------------------
 # Load configuration parameters from the YAML file
 # ------------------------------------------------------------------------------
-with open("/home/irina/HumanFootprint/Scripts/config/trail_density.yaml", "r") as f:
+with open("/src/config/trail_density.yaml", "r") as f:
     PARAMS = yaml.safe_load(f)
 
 # Create necessary output directories if they don't exist.

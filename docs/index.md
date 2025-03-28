@@ -1,17 +1,14 @@
-# Welcome to MkDocs
+# Welcome to HumanFootprint Documentation
 
-For full documentation visit [mkdocs.org](https://www.mkdocs.org).
+This site documents the **HumanFootprint** project, which provides a command-line tool for running sliding-window inference using a SegFormer-based model. 
 
-## Commands
+## Overview
 
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs -h` - Print help message and exit.
+The project is built around:
+- **Hydra** for configuration management.
+- A modular codebase with importable libraries in `src/`.
+- Command-line entry points located in the `scripts/` folder.
 
-## Project layout
+Use the navigation on the left to explore usage instructions, configuration options, and API reference documentation.
 
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
+For more information on MkDocs, visit [mkdocs.org](https://www.mkdocs.org).
