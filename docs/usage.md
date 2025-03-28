@@ -22,3 +22,6 @@ python scripts/run_trailformer.py \
   inference.overlap_size=64 \
   inference.threshold=0.15 \
   paths.output_dir="/data/prediction_results"
+
+
+

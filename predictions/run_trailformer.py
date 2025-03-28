@@ -52,10 +52,6 @@ def main(cfg: DictConfig):
 
     Returns:
         None
-
-    Example:
-        >>> # Example usage from command line:
-        >>> # python run_trailformer.py inference.to_predict="/path/to/image.tif"
     """
 
     # Hydra changes the current working directory by default.
