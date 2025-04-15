@@ -10,7 +10,6 @@ hf_model/
 *.json
 
 # Ignore all TIFF files
-*.tif
 *.tiff
 
 # Ignore Metaflow runtime data
