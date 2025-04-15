@@ -7,12 +7,14 @@ from src.data_generator import DataGenerator
 from src.metrics import iou, iou_thresholded
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
+from omegaconf import OmegaConf
 
 def load_data(patch_dir):
     all_files = [f for f in os.listdir(patch_dir) if f.endswith('.tif')]
-    train_images = [os.path.join(patch_dir, f) for f in all_files if 'img' in f]
-    train_labels = [os.path.join(patch_dir, f.replace('img', 'lab')) for f in train_images if os.path.isfile(os.path.join(patch_dir, f.replace('img', 'lab')))]
+    train_images = [os.path.join(patch_dir, f) for f in all_files if 'image' in f]
+    train_labels = [os.path.join(patch_dir, f.replace('image', 'label')) for f in train_images if os.path.isfile(os.path.join(patch_dir, f.replace('img', 'lab')))]
     train_images, val_images, train_labels, val_labels = train_test_split(train_images, train_labels, test_size=0.1, random_state=42)
+    print('Train images: ', train_images[:3])
     return train_images, val_images, train_labels, val_labels
 
 def train_model(cfg: DictConfig):
@@ -78,12 +80,15 @@ def train_model(cfg: DictConfig):
 
 @hydra.main(config_path="configs", config_name="train", version_base=None)
 def main(cfg: DictConfig):
+    OmegaConf.set_struct(cfg, False)  # <-- allow adding keys dynamically
+
     train_images, val_images, train_labels, val_labels = load_data(cfg.training.patch_dir)
     cfg.train_images = train_images
     cfg.val_images = val_images
     cfg.train_labels = train_labels
     cfg.val_labels = val_labels
     train_model(cfg)
+
 
 if __name__ == "__main__":
     main()
