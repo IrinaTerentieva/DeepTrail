@@ -33,15 +33,14 @@ The study demonstrated that high-density LiDAR and CNNs could accurately map tra
 
 The research identified a network of trails and tracks within the 50+ km² study area, with a higher concentration in peatlands. The study also revealed that seismic lines significantly influence movement patterns.
 
-[![CNN Model Applied to UAV Data](https://github.com/appliedgrg/trails-tracks-mapper/blob/main/images/CNN_at_UAVdata.png)](https://github.com/appliedgrg/trails-tracks-mapper/blob/main/images/CNN_at_UAVdata.png)
-
 ### Visualization
-Figures demonstrating trail predictions and visual comparison are available in [`examples/figures/`](examples/figures):
-- [CNN_at_UAVdata.png](examples/figures/CNN_at_UAVdata.png): CNN-based predictions overlayed with drone optical data
-- [trail_patterns.png](examples/figures/trail_patterns.png): Common trail patterns in peatland ecosystems
-- [visual_vs_CNN.png](examples/figures/visual_vs_CNN.png): Visual interpretation vs CNN outputs
+Figures demonstrating trail predictions and visual comparison:
 
 ![CNN Model Applied to UAV Data](examples/figures/CNN_at_UAVdata.png)
+
+![Trail Patterns in Peatlands](examples/figures/trail_patterns.png)
+
+![Visual Interpretation vs CNN Output](examples/figures/visual_vs_CNN.png)
 
 ### Applications
 The developed tools and models can significantly enhance ecological monitoring and conservation efforts by providing detailed spatial data on animal and human trails. The trail maps generated can be used to better understand animal behavior, design more effective wildlife monitoring studies, and assess the impact of human activities on natural landscapes.
