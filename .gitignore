@@ -5,7 +5,6 @@ hf_model/
 *.gpkg
 hf_model/
 *.bin
-*.png
 *.dat
 # Ignore all JSON files
 *.json
