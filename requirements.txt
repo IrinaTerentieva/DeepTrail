@@ -11,6 +11,7 @@ shapely
 matplotlib==3.10.1
 numpy==1.23.0
 pandas
+pyproj
 tqdm==4.67.1
 opencv-python-headless
 huggingface_hub==0.30.2
