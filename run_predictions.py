@@ -10,34 +10,49 @@ from src.metrics import iou, iou_thresholded, jaccard_coef, dice_coef
 from huggingface_hub import hf_hub_download
 
 
-def load_trail_model(model_path, custom_objects):
-    if model_path.startswith("hf://"):
-        _, repo_path = model_path.split("hf://")
-        model_path = hf_hub_download(repo_id=repo_path, filename="model.h5")
+def load_trail_model(cfg, custom_objects):
+    if cfg.trail_mapping.model_source == "hf":
+        model_path = hf_hub_download(
+            repo_id=cfg.trail_mapping.hf_repo_id,
+            filename=cfg.trail_mapping.hf_filename
+        )
+    else:
+        model_path = cfg.trail_mapping.model_weights_path
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found at: {model_path}")
     return load_model(model_path, custom_objects=custom_objects)
 
 
-@hydra.main(config_path="configs", config_name="predict", version_base=None)
+@hydra.main(config_path="configs", config_name="inference", version_base=None)
 def main(cfg: DictConfig):
-    model = load_trail_model(cfg.model_name, custom_objects={
+    model = load_trail_model(cfg, custom_objects={
         'iou': iou,
         'iou_thresholded': iou_thresholded,
         'jaccard_coef': jaccard_coef,
         'dice_coef': dice_coef
     })
 
-    with rasterio.open(cfg.input_tif) as src:
+    input_tif = cfg.paths_to_predict.input_to_predict_file
+    with rasterio.open(input_tif) as src:
         height, width = src.height, src.width
-        patch_size = model.input_shape[1]
-        stride = patch_size - cfg.overlap_size
+        patch_size = cfg.trail_mapping.patch_size
+        stride = patch_size - cfg.trail_mapping.overlap
 
         if stride <= 0:
-            raise ValueError(f"Invalid overlap_size={cfg.overlap_size}. Must be less than patch_size={patch_size}.")
+            raise ValueError(f"Invalid overlap. Must be less than patch size ({patch_size}).")
 
         prediction = np.zeros((height, width), dtype=np.uint8)
 
-        for row in range(0, height, stride):
-            for col in range(0, width, stride):
+        row_starts = list(range(0, height - patch_size + 1, stride))
+        if row_starts[-1] + patch_size < height:
+            row_starts.append(height - patch_size)
+
+        col_starts = list(range(0, width - patch_size + 1, stride))
+        if col_starts[-1] + patch_size < width:
+            col_starts.append(width - patch_size)
+
+        for row in row_starts:
+            for col in col_starts:
                 window = adjust_window(Window(col, row, patch_size, patch_size), width, height)
                 patch = src.read(window=window)
                 patch = np.moveaxis(patch, 0, -1)
@@ -50,15 +65,16 @@ def main(cfg: DictConfig):
                 col_off, row_off, width_win, height_win = map(int, window.flatten())
                 pred = pred[:height_win, :width_win]
 
-                prediction[row_off:row_off+height_win, col_off:col_off+width_win] = np.maximum(
-                    prediction[row_off:row_off+height_win, col_off:col_off+width_win],
+                prediction[row_off:row_off + height_win, col_off:col_off + width_win] = np.maximum(
+                    prediction[row_off:row_off + height_win, col_off:col_off + width_win],
                     pred
                 )
 
-        # Save to central output folder with model info in filename
-        model_tag = os.path.basename(cfg.model_name).replace(".h5", "").replace("/", "_")
-        input_name = os.path.splitext(os.path.basename(cfg.input_tif))[0]
-        output_dir = os.path.join(os.getcwd(), "folder_preds")
+        # Save output in a subfolder next to the input file
+        model_tag = cfg.trail_mapping.model_name
+        input_name = os.path.splitext(os.path.basename(input_tif))[0]
+        input_folder = os.path.dirname(input_tif)
+        output_dir = os.path.join(input_folder, cfg.trail_mapping.output_subfolder)
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{input_name}_{model_tag}_pred.tif")
 
