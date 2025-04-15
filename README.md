@@ -1,7 +1,15 @@
 # Mapping Animal and Human Trails in Northern Peatlands using LiDAR and Convolutional Neural Networks
 
 ## Overview
-This repository contains the code and data for the paper titled "Mapping Animal and Human Trails in Northern Peatlands using LiDAR and Convolutional Neural Networks." The goal of this project is to develop and validate tools for automatically mapping trails using Convolutional Neural Networks (CNNs) and LiDAR data (both drone and aerial platforms).
+This repository contains the code, models, and configuration files for the paper titled **"Mapping Trails and Tracks in the Boreal Forest using LiDAR and Convolutional Neural Networks"**. The goal is to automatically detect and map trails using high-resolution **LiDAR-derived DTMs** and **U-Net CNNs**, validated through visual inspection and field surveys.
+
+---
+
+## 👥 Project Team
+
+**NeedleNet** was developed by the [Applied Geospatial Research Group](https://www.appliedgrg.ca/) at the University of Calgary, led by Dr. Greg McDermid, in collaboration with [Falcon & Swift Geomatics Ltd.](https://www.falconandswift.ca/), an environmental consulting company specializing in vegetation monitoring and landscape recovery across Western Canada.
+
+---
 
 ### Background
 Trails are physical signs of movement left by animals or humans and are important for studying wildlife behavior and human impact on natural environments. These trails can vary in permanence, influenced by factors such as terrain and frequency of use. Traditional wildlife tracking methods include GNSS, camera traps, and genetic analysis, but these methods can be enhanced with detailed spatial data on trail locations.
@@ -23,51 +31,80 @@ The primary objective of this research is to develop a fully automated strategy 
 ### Results
 The study demonstrated that high-density LiDAR and CNNs could accurately map trails and tracks across a diverse boreal forest area. Maps developed using LiDAR data from both drone and piloted-aircraft platforms showed no significant difference in accuracy. The piloted-aircraft LiDAR map achieved an F1 score of 77% ± 9%.
 
-The research identified a 2829-km network of trails and tracks within the 59-km² study area, with a higher concentration in peatlands. The study also revealed that seismic lines significantly influence movement patterns.
+The research identified a network of trails and tracks within the 50+ km² study area, with a higher concentration in peatlands. The study also revealed that seismic lines significantly influence movement patterns.
 
 [![CNN Model Applied to UAV Data](https://github.com/appliedgrg/trails-tracks-mapper/blob/main/images/CNN_at_UAVdata.png)](https://github.com/appliedgrg/trails-tracks-mapper/blob/main/images/CNN_at_UAVdata.png)
 
+### Visualization
+Figures demonstrating trail predictions and visual comparison are available in [`examples/figures/`](examples/figures):
+- [CNN_at_UAVdata.png](examples/figures/CNN_at_UAVdata.png): CNN-based predictions overlayed with drone optical data
+- [trail_patterns.png](examples/figures/trail_patterns.png): Common trail patterns in peatland ecosystems
+- [visual_vs_CNN.png](examples/figures/visual_vs_CNN.png): Visual interpretation vs CNN outputs
+
+![CNN Model Applied to UAV Data](examples/figures/CNN_at_UAVdata.png)
 
 ### Applications
 The developed tools and models can significantly enhance ecological monitoring and conservation efforts by providing detailed spatial data on animal and human trails. The trail maps generated can be used to better understand animal behavior, design more effective wildlife monitoring studies, and assess the impact of human activities on natural landscapes.
 
-For more detailed information on the methodology, data, and results, please refer to the paper which was submitted to PeerJ.
+For more detailed information on the methodology, data, and results, please refer to the paper which was submitted to Remote Sensing (MDPI)
 
 
-## Installation
-To set up the environment and install dependencies, follow these steps:
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/appliedgrg/trails-tracks-mapper.git
-   cd trails-tracks-mapper
+## 🔧 Installation
+```bash
+git clone https://github.com/appliedgrg/trails-tracks-mapper.git
+cd trails-tracks-mapper
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
 
-2. **Create a virtual environment and install dependencies**:
-   ```bash
-   python3 -m venv env
-   source env/bin/activate
-   pip install -r requirements.txt
+## 🧠 Best Performing CNN Models
+| Model Name                     | Description                                           |
+|--------------------------------|-------------------------------------------------------|
+| `Trail_UNet_DTM10cm_512px`     | Best model, 10 cm resolution DTM (usually drone data) |
+| `Trail_UNet_DTM50cm_256px`     | Model for 50 cm resolution (usually) airbone DTM data |
+| `Trail_UNet_nDTM50cm_512px`    | Model for 50 cm normalized DTM data (relative DTM)    |
 
-## Best Performing CNN Models
+## 📦 Folder Structure
+```
+├── configs/                  # Hydra configs: training, inference, patching
+├── src/                      
+├── 0_data_preprocessing.py   # Data preprocessing script
+├── 1_train.py                # Training script
+├── 2_run_predictions.py      # Inference script
+```
 
-1. **DTM 10 cm with 512 px window size**:
+### Sample Data and Outputs
+To facilitate reproducibility and exploration, this repository includes:
 
-Trails_Tracks_DTM10cm_512px
+- **Sample Input Patches**: [`examples/sample_input_patches/`](examples/sample_input_patches) – example training patches (`*_img.tif` and `*_lab.tif`) used for training the CNN model.
+- **Sample Data Sources**: [`examples/sample_data_sources/`](examples/sample_data_sources) – LiDAR inputs over a fen area, including:
+  - Airborne DTM 10 cm
+  - Airborne nDTM 10 cm
+  - Airborne nDTM 50 cm
+  - Drone DTM 10 cm
+  - Drone nDTM 10 cm
+- **Model Sensitivity**: Models are **resolution-specific**:
+  - Apply 10 cm models to 10 cm data, and 50 cm models to 50 cm data.
+  - The model automatically determines the patch size to use (e.g. a model named `*_512px` will process raster in 512×512 px patches).
+- **Sample CNN Predictions**: [`examples/sample_CNN_predictions/`](examples/sample_CNN_predictions) – contains raw `.tif` predictions for the fen area using 50 cm airborne nDTM and a CNN model.
 
-2. **DTM 50 cm with 512 px window size**:
+## 🤝 Acknowledgments
 
-Trails_Tracks_DTM50cm_256px
+Developed by:
 
-3. **DTM normalized 50 cm with 512 px window size**:
+- [Applied Geospatial Research Group, University of Calgary](https://www.appliedgrg.ca/)
+- [Falcon & Swift Geomatics Ltd.](https://www.falconandswift.ca/)
 
-Trails_Tracks_DTMnorm50cm_512px
+This project supports restoration monitoring and recovery assessment efforts across boreal ecosystems in Western Canada.
 
+## 👥 Contributors
+- Irina Terenteva (irina.terenteva@ucalgary.ca)
+- Xue Yan Chan (xueyan.chan@ucalgary.ca)
+- Gregory J. McDermid (mcdermid@ucalgary.ca)
 
-## Contributors
-Irina Terenteva (irina.terenteva@ucalgary.ca)
-Xue Yan Chan (mcdermid@ucalgary.ca)
-Gregory J. McDermid (mcdermid@ucalgary.ca)
+## 📄 License
+This project is licensed under the **Creative Commons BY-NC 4.0 License** — see the LICENSE file for details.
 
-## License
-This project is licensed under the Creative Commons BY-NC 4.0 License - see the LICENSE file for details.
 
