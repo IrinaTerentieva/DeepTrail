@@ -8,7 +8,7 @@ from src.predict_utils import pad_to_shape, predict_patch, adjust_window
 from tensorflow.keras.models import load_model
 from src.metrics import iou, iou_thresholded, jaccard_coef, dice_coef
 from huggingface_hub import hf_hub_download
-
+import re
 
 def load_trail_model(cfg, custom_objects):
     if cfg.trail_mapping.model_source == "hf":
@@ -32,20 +32,36 @@ def main(cfg: DictConfig):
         'dice_coef': dice_coef
     })
 
+    # Only override if not explicitly set
+    if not cfg.trail_mapping.patch_size:
+        match = re.search(r'_(\d+)px$', cfg.trail_mapping.model_name)
+        if match:
+            cfg.trail_mapping.patch_size = int(match.group(1))
+        else:
+            raise ValueError("Could not infer patch size from model_name. Set trail_mapping.patch_size manually.")
+
+
     input_tif = cfg.paths_to_predict.input_to_predict_file
     with rasterio.open(input_tif) as src:
         height, width = src.height, src.width
         patch_size = cfg.trail_mapping.patch_size
         stride = patch_size - cfg.trail_mapping.overlap
+        print(f'Working with {cfg.trail_mapping.patch_size} patch_size')
+        print(f'Working with {stride} stride')
 
         if stride <= 0:
             raise ValueError(f"Invalid overlap. Must be less than patch size ({patch_size}).")
 
         prediction = np.zeros((height, width), dtype=np.uint8)
 
-        row_starts = list(range(0, height - patch_size + 1, stride))
-        if row_starts[-1] + patch_size < height:
-            row_starts.append(height - patch_size)
+        # Row starts
+        if height <= patch_size:
+            row_starts = [0]
+        else:
+            row_starts = list(range(0, height - patch_size + 1, stride))
+            if row_starts[-1] + patch_size < height:
+                row_starts.append(height - patch_size)
+        print('row_starts: ', row_starts)
 
         col_starts = list(range(0, width - patch_size + 1, stride))
         if col_starts[-1] + patch_size < width:
