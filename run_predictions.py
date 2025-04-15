@@ -61,7 +61,6 @@ def main(cfg: DictConfig):
             row_starts = list(range(0, height - patch_size + 1, stride))
             if row_starts[-1] + patch_size < height:
                 row_starts.append(height - patch_size)
-        print('row_starts: ', row_starts)
 
         col_starts = list(range(0, width - patch_size + 1, stride))
         if col_starts[-1] + patch_size < width:
