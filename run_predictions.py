@@ -1,14 +1,15 @@
 import os
 import hydra
 from omegaconf import DictConfig
+import re
 import rasterio
 import numpy as np
 from rasterio.windows import Window
+
 from src.predict_utils import pad_to_shape, predict_patch, adjust_window
-from tensorflow.keras.models import load_model
 from src.metrics import iou, iou_thresholded, jaccard_coef, dice_coef
+from tensorflow.keras.models import load_model
 from huggingface_hub import hf_hub_download
-import re
 
 def load_trail_model(cfg, custom_objects):
     if cfg.trail_mapping.model_source == "hf":

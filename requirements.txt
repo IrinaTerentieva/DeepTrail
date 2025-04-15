@@ -1,16 +1,18 @@
-tensorflow
-matplotlib
-tifffile
-numpy
-pillow
-fiona
-datetime
-tensorflow-addons
-rasterio
-pandas
-opencv-python
-geopandas
-keras
-tqdm
-keras-unet
+### CPU only version
 
+tensorflow==2.12.0
+keras==2.12.0
+h5py
+rasterio==1.4.3
+scikit-image==0.24.0
+scikit-learn==1.6.1
+geopandas==1.0.1
+shapely
+matplotlib==3.10.1
+numpy==1.23.0
+pandas
+tqdm==4.67.1
+opencv-python-headless
+huggingface_hub==0.30.2
+hydra-core==1.3.2
+omegaconf==2.3.0
