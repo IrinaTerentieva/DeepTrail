@@ -1,1 +1,85 @@
 __pycache__
+hf_model/
+*.bin
+*.pth
+*.gpkg
+hf_model/
+*.bin
+*.png
+*.dat
+# Ignore all JSON files
+*.json
+
+# Ignore all TIFF files
+*.tif
+*.tiff
+
+# Ignore Metaflow runtime data
+.metaflow/
+
+# Ignore Python cache and virtual environment directories
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+.env
+
+# Ignore hidden system files
+.DS_Store
+Thumbs.db
+
+# Ignore WandB directories
+wandb/
+
+
+# .gitignore
+models/*/pytorch_model.bin
+models/*/*.pt
+models/*/*.ckpt
+models/*/*.pth
+
+# .gitignore
+HF_models/*/pytorch_model.bin
+HF_models/*/*.pt
+HF_models/*/*.ckpt
+HF_models/*/*.pth
+
+# Ignore other project-specific data or temporary files
+*.h5
+*.yaml
+*.yml
+*.ckpt
+*.pth
+*.pt
+*.onnx
+
+# Ignore large data files
+*.csv
+*.xls
+*.xlsx
+*.geojson
+*.shp
+*.dbf
+*.prj
+*.shx
+*.txt
+
+# Ignore raster data files
+*.asc
+*.vrt
+*.img
+*.map
