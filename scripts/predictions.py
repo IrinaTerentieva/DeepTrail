@@ -1,22 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 # python prediction.py --input_tif /path/to/input.tif --model_name /path/to/model.h5 --patch_size 512 --overlap_size 256 --filters 32 --visualize
-
-
-# In[1]:
-
-
-config = ConfigProto()
-config.gpu_options.allow_growth = True
-session = InteractiveSession(config=config)
-
-
-# In[22]:
-
 
 import os
 import numpy as np
