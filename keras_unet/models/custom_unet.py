@@ -136,7 +136,7 @@ def custom_unet(
     dropout_change_per_layer=0.0,
     dropout_type="spatial",
     use_dropout_on_upsampling=False,
-    use_attention=False,
+    use_attention=True,
     filters=16,
     num_layers=4,
     output_activation="sigmoid",
