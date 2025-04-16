@@ -20,6 +20,7 @@ The primary objective of this research is to develop a fully automated strategy 
 - **Model Architecture**: A U-Net model, a type of CNN renowned for its efficacy in image segmentation tasks, was employed. The model was configured to accept one-band input images of 256x256 and 512x512 pixels, with batch normalization and a dropout rate of 0.3 to prevent overfitting.
 - **Training and Validation**: The model was trained on manually labeled training data, with various data augmentation techniques applied to increase dataset variability. The performance of the model was evaluated using visual interpretation of high-resolution imagery and field inspections.
 
+
 ### Results
 The study demonstrated that high-density LiDAR and CNNs could accurately map trails and tracks across a diverse boreal forest area. Maps developed using LiDAR data from both drone and piloted-aircraft platforms showed no significant difference in accuracy. The piloted-aircraft LiDAR map achieved an F1 score of 77% ± 9%.
 
