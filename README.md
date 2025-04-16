@@ -3,14 +3,6 @@
 ## Overview
 This repository contains the code, models, and configuration files for the paper titled **"Mapping Trails and Tracks in the Boreal Forest using LiDAR and Convolutional Neural Networks"**. The goal is to automatically detect and map trails using high-resolution **LiDAR-derived DTMs** and **U-Net CNNs**, validated through visual inspection and field surveys.
 
----
-
-## 👥 Project Team
-
-**NeedleNet** was developed by the [Applied Geospatial Research Group](https://www.appliedgrg.ca/) at the University of Calgary, led by Dr. Greg McDermid, in collaboration with [Falcon & Swift Geomatics Ltd.](https://www.falconandswift.ca/), an environmental consulting company specializing in vegetation monitoring and landscape recovery across Western Canada.
-
----
-
 ### Background
 Trails are physical signs of movement left by animals or humans and are important for studying wildlife behavior and human impact on natural environments. These trails can vary in permanence, influenced by factors such as terrain and frequency of use. Traditional wildlife tracking methods include GNSS, camera traps, and genetic analysis, but these methods can be enhanced with detailed spatial data on trail locations.
 
@@ -18,9 +10,9 @@ Understanding the exact locations of trails can provide valuable insights for ec
 
 ### Objective
 The primary objective of this research is to develop a fully automated strategy for detecting and mapping trails and related linear features using modern datasets and processing algorithms. The primary objectives of this research are:
->> To demonstrate the capacity of high-density LiDAR and CNNs to map trails and tracks automatically.
->> To compare the accuracy of trail and track maps developed with LiDAR data from drone and piloted-aircraft platforms.
->> To measure the abundance and distribution of trails and tracks across different land-cover classes and their co-location with anthropogenic disturbances in the boreal forest of northeastern Alberta, Canada.
+- To demonstrate the capacity of high-density LiDAR and CNNs to map trails and tracks automatically.
+- To compare the accuracy of trail and track maps developed with LiDAR data from drone and piloted-aircraft platforms.
+- To measure the abundance and distribution of trails and tracks across different land-cover classes and their co-location with anthropogenic disturbances in the boreal forest of northeastern Alberta, Canada.
 
 ### Methodology
 - **Data Acquisition**: The study area is located in the boreal zone of northeastern Alberta, Canada. High-resolution LiDAR and RGB imagery were collected using drone and aerial platforms.
@@ -34,11 +26,17 @@ The study demonstrated that high-density LiDAR and CNNs could accurately map tra
 The research identified a network of trails and tracks within the 50+ km² study area, with a higher concentration in peatlands. The study also revealed that seismic lines significantly influence movement patterns.
 
 ### Visualization
-Figures demonstrating trail predictions and visual comparison:
+Figure demonstrating trail predictions and visual comparison:
+
+**Predictions overlayed on optical drone imagery**
 
 ![CNN Model Applied to UAV Data](examples/figures/CNN_at_UAVdata.png)
 
+**Typical trail patterns seen across northern peatland ecosystems**
+
 ![Trail Patterns in Peatlands](examples/figures/trail_patterns.png)
+
+**Comparison between CNN-predicted trails and visual interpretation labels**
 
 ![Visual Interpretation vs CNN Output](examples/figures/visual_vs_CNN.png)
 
