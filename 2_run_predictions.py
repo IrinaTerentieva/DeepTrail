@@ -76,10 +76,15 @@ def main(cfg: DictConfig):
                 if patch.shape[:2] != (patch_size, patch_size):
                     patch = pad_to_shape(patch, (patch_size, patch_size))
 
+                # Fill NaNs with zero (or use other strategy like np.nanmean)
+                if np.isnan(patch).any():
+                    patch = np.nan_to_num(patch, nan=0)  # or nan=np.nanmean(patch)
+
                 pred = predict_patch(model, patch)
 
                 col_off, row_off, width_win, height_win = map(int, window.flatten())
                 pred = pred[:height_win, :width_win]
+                pred = np.where(pred > 10, pred, 0)
 
                 prediction[row_off:row_off + height_win, col_off:col_off + width_win] = np.maximum(
                     prediction[row_off:row_off + height_win, col_off:col_off + width_win],
