@@ -13,6 +13,10 @@ def adjust_window(window, max_width, max_height):
 def normalize_image(image):
     min_val = np.min(image)
     max_val = np.max(image)
+
+    # min_val = -0.5
+    # max_val = 0.5
+
     return (image - min_val) / (max_val - min_val)
 
 def pad_to_shape(array, target_shape):

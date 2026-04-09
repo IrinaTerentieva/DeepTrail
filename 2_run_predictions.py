@@ -5,6 +5,7 @@ import re
 import rasterio
 import numpy as np
 from rasterio.windows import Window
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from src.predict_utils import pad_to_shape, predict_patch, adjust_window
 from src.metrics import iou, iou_thresholded, jaccard_coef, dice_coef
